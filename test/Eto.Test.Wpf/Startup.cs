@@ -1,4 +1,4 @@
-﻿using Eto.Wpf.Forms.Controls;
+using Eto.Wpf.Forms.Controls;
 using System;
 using System.Windows.Media;
 
@@ -19,6 +19,10 @@ namespace Eto.Test.Wpf
 
 			var app = new TestApplication(platform);
 			app.TestAssemblies.Add(typeof(Startup).Assembly);
+
+			System.Windows.Application.Current.Resources.MergedDictionaries.Add(new System.Windows.ResourceDictionary { Source = new Uri("pack://application:,,,/DynamicAero2;component/Theme.xaml", UriKind.RelativeOrAbsolute) });
+			System.Windows.Application.Current.Resources.MergedDictionaries.Add(new System.Windows.ResourceDictionary { Source = new Uri("pack://application:,,,/DynamicAero2;component/Brushes/Dark.xaml", UriKind.RelativeOrAbsolute) });
+
 			app.Run();
 		}
 

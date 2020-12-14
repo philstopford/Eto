@@ -44,7 +44,7 @@ namespace Eto.Serialization.Xaml
 	}
 	#endif
 
-	#if PORTABLE || NET45
+	#if PORTABLE || net472
 	[Obsolete("Since 2.5")]
 	class TypeConverterConverter : cm.TypeConverter
 	{
@@ -206,7 +206,7 @@ namespace Eto.Serialization.Xaml
 			return UnderlyingType.GetTypeInfo().GetCustomAttribute<T>(inherit);
 		}
 
-		#if PORTABLE || NET45
+		#if PORTABLE || net472
 		XamlValueConverter<cm.TypeConverter> typeConverter;
 		bool gotTypeConverter;
 

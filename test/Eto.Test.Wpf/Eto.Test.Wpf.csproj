@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net5.0-windows;net472</TargetFrameworks>
+    <TargetFrameworks>net5.0-windows</TargetFrameworks>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -40,6 +40,7 @@
   </ItemGroup>
   
   <ItemGroup>
+    <ProjectReference Include="..\..\DynamicAero2\DynamicAero2.csproj" />
     <ProjectReference Include="..\..\src\Eto.Wpf\Eto.Wpf.csproj" />
     <ProjectReference Include="..\Eto.Test\Eto.Test.csproj" />
     <ProjectReference Include="..\..\src\Eto\Eto.csproj" />

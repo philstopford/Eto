@@ -10,7 +10,7 @@ build_script:
 - msbuild -t:BuildAddins -p:BuildVersion=%BUILD_VERSION% build\Build.proj /v:minimal /logger:"C:\Program Files\AppVeyor\BuildAgent\Appveyor.MSBuildLogger.dll" /consoleloggerparameters:NoSummary /p:HaveWindowsDesktopSdk=true
 test: off
 #test_script:
-#- nunit-console --framework=4.5 --include=TestPlatform artifacts/Release/net45/test/Eto.Test.dll
+#- nunit-console --framework=4.5 --include=TestPlatform artifacts/Release/net472/test/Eto.Test.dll
 artifacts:
 - path: artifacts/nuget/Release/*.nupkg
   name: nuget
