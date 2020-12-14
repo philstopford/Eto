@@ -1,8 +1,9 @@
 ﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:eto="clr-namespace:Eto.Wpf.Forms.Controls;assembly=Eto.Wpf"                                        
                     >
     <BorderGapMaskConverter x:Key="BorderGapMaskConverter"/>
-    <Style x:Key="{x:Type GroupBox}"
+    <Style x:Key="BaseGroupBoxStyle" 
            TargetType="{x:Type GroupBox}">
         <Setter Property="BorderBrush"
                 Value="{DynamicResource GroupBox.Static.MiddleBorder}"/>
@@ -84,4 +85,9 @@
             </Setter.Value>
         </Setter>
     </Style>
+
+    <Style x:Key="{x:Type eto:EtoGroupBox}"
+       BasedOn="{StaticResource BaseGroupBoxStyle}"
+       TargetType="{x:Type eto:EtoGroupBox}"/>
+
 </ResourceDictionary>

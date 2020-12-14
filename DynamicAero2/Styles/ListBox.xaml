@@ -1,6 +1,8 @@
 ﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <Style x:Key="{x:Type ListBox}" TargetType="{x:Type ListBox}">
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:eto="clr-namespace:Eto.Wpf.Forms.Controls;assembly=Eto.Wpf"                                        
+                    >
+    <Style x:Key="BaseListBoxStyle" TargetType="{x:Type ListBox}">
         <Setter Property="Background" Value="{DynamicResource ListBox.Static.Background}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource ListBox.Static.Border}"/>
         <Setter Property="BorderThickness" Value="1"/>
@@ -42,4 +44,10 @@
             </Setter.Value>
         </Setter>
     </Style>
+
+    <Style x:Key="{x:Type eto:EtoListBox}"
+       BasedOn="{StaticResource BaseListBoxStyle}"
+       TargetType="{x:Type eto:EtoListBox}"/>
+
+
 </ResourceDictionary>

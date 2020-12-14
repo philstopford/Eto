@@ -6,6 +6,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\src\Eto.Wpf\Eto.Wpf.csproj" />
+    <ProjectReference Include="..\src\Eto\Eto.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Page Update="Brushes\Light.xaml">
       <SubType>Designer</SubType>
     </Page>
