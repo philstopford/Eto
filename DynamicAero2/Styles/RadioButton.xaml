@@ -1,7 +1,9 @@
 ﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-                    xmlns:local="clr-namespace:DynamicAero2.Styles">
-    <Style TargetType="{x:Type RadioButton}">
+                    xmlns:local="clr-namespace:DynamicAero2.Styles"
+                    xmlns:eto="clr-namespace:Eto.Wpf.Forms.Controls;assembly=Eto.Wpf"                                        
+                    >
+    <Style x:Key="{x:Type RadioButton}" TargetType="{x:Type RadioButton}">
         <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisual}"/>
         <Setter Property="Background" Value="{DynamicResource RadioButton.Static.Background}" />
         <Setter Property="BorderBrush" Value="{DynamicResource RadioButton.Static.Border}" />
@@ -68,4 +70,7 @@
         </Setter>
     </Style>
 
+    <Style x:Key="{x:Type eto:RadioButtonHandler}"
+       BasedOn="{StaticResource {x:Type RadioButton}}"
+       TargetType="{x:Type eto:RadioButtonHandler}"/>
 </ResourceDictionary>

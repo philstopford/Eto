@@ -2,7 +2,7 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:eto="clr-namespace:Eto.Wpf.Forms.Controls;assembly=Eto.Wpf"                                        
                     >
-    <Style x:Key="BaseListBoxStyle" TargetType="{x:Type ListBox}">
+    <Style x:Key="{x:Type ListBox}" TargetType="{x:Type ListBox}">
         <Setter Property="Background" Value="{DynamicResource ListBox.Static.Background}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource ListBox.Static.Border}"/>
         <Setter Property="BorderThickness" Value="1"/>
@@ -46,7 +46,7 @@
     </Style>
 
     <Style x:Key="{x:Type eto:EtoListBox}"
-       BasedOn="{StaticResource BaseListBoxStyle}"
+       BasedOn="{StaticResource {x:Type ListBox}}"
        TargetType="{x:Type eto:EtoListBox}"/>
 
 

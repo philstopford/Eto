@@ -1,8 +1,10 @@
 ﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-                    xmlns:local="clr-namespace:DynamicAero2.Styles">
-    
-    <Style TargetType="{x:Type CheckBox}">
+                    xmlns:local="clr-namespace:DynamicAero2.Styles"
+                    xmlns:eto="clr-namespace:Eto.Wpf.Forms.Controls;assembly=Eto.Wpf"                                        
+                    >
+
+    <Style x:Key="{x:Type CheckBox}" TargetType="{x:Type CheckBox}">
         <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisual}"/>
         <Setter Property="Background" Value="{DynamicResource OptionMark.Static.Background}" />
         <Setter Property="BorderBrush" Value="{DynamicResource OptionMark.Static.Border}" />
@@ -73,4 +75,9 @@
             </Setter.Value>
         </Setter>
     </Style>
+
+    <Style x:Key="{x:Type eto:CheckBoxHandler}"
+       BasedOn="{StaticResource {x:Type CheckBox}}"
+       TargetType="{x:Type eto:CheckBoxHandler}"/>
+
 </ResourceDictionary>
