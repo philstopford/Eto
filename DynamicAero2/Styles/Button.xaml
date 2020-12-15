@@ -1,6 +1,7 @@
 ﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:eto="clr-namespace:Eto.Wpf.Forms.Controls;assembly=Eto.Wpf"
+                    xmlns:mwc="clr-namespace:Xceed.Wpf.Toolkit;assembly=Xceed.Wpf.Toolkit"
                     >
     <Style x:Key="BaseButtonStyle" TargetType="{x:Type ButtonBase}">
         <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisual}"/>
@@ -92,4 +93,13 @@
        BasedOn="{StaticResource BaseButtonStyle}"
        TargetType="{x:Type eto:EtoButton}"/>
 
+    <!--
+    <Style x:Key="{x:Type eto:EtoDoubleUpDown}"
+       BasedOn="{StaticResource BaseButtonStyle}"
+       TargetType="{x:Type eto:EtoDoubleUpDown}"/>
+-->
+
+    <Style x:Key="{x:Type mwc:DoubleUpDown}"
+       BasedOn="{StaticResource BaseButtonStyle}"
+       TargetType="{x:Type mwc:DoubleUpDown}"/>
 </ResourceDictionary>

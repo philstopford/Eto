@@ -6,6 +6,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Extended.Wpf.Toolkit" Version="3.6.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\src\Eto.Wpf\Eto.Wpf.csproj" />
     <ProjectReference Include="..\src\Eto\Eto.csproj" />
   </ItemGroup>
