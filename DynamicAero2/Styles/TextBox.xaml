@@ -162,4 +162,10 @@
        BasedOn="{StaticResource {x:Type PasswordBox}}"
        TargetType="{x:Type eto:PasswordBoxHandler}"/>
 
+    <Style x:Key="{x:Type eto:GridViewHandler}"
+       BasedOn="{StaticResource {x:Type TextBox}}"
+       TargetType="{x:Type eto:GridViewHandler}"/>
+
+
+
 </ResourceDictionary>

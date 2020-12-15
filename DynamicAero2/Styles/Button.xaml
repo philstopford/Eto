@@ -97,13 +97,12 @@
        BasedOn="{StaticResource BaseButtonStyle}"
        TargetType="{x:Type eto:LinkButtonHandler}"/>
 
-    <!--
-    <Style x:Key="{x:Type eto:EtoDoubleUpDown}"
+    <Style x:Key="{x:Type eto:NumericStepperHandler}"
        BasedOn="{StaticResource BaseButtonStyle}"
-       TargetType="{x:Type eto:EtoDoubleUpDown}"/>
--->
+       TargetType="{x:Type eto:NumericStepperHandler}"/>
 
     <Style x:Key="{x:Type mwc:DoubleUpDown}"
        BasedOn="{StaticResource BaseButtonStyle}"
        TargetType="{x:Type mwc:DoubleUpDown}"/>
+
 </ResourceDictionary>

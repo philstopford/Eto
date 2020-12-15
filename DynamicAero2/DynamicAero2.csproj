@@ -6,10 +6,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Page Remove="Styles\Panel.xaml" />
-  </ItemGroup>
-
-  <ItemGroup>
     <PackageReference Include="Extended.Wpf.Toolkit" Version="3.6.0" />
   </ItemGroup>
 

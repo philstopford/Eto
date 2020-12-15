@@ -1,11 +1,16 @@
 ﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:eto="clr-namespace:Eto.Wpf.Forms.Controls;assembly=Eto.Wpf"                                        
+                    xmlns:mwc="clr-namespace:Xceed.Wpf.Toolkit;assembly=Xceed.Wpf.Toolkit"
                     >
 
-    <Style x:Key="{x:Type Label}" TargetType="{x:Type Label}">
+    <Style x:Key="BaseLabelStyle" TargetType="{x:Type Label}">
+        <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusVisual}"/>
         <Setter Property="HorizontalContentAlignment" Value="Left" />
         <Setter Property="VerticalContentAlignment" Value="Top" />
+        <Setter Property="Background" Value="{DynamicResource Label.Background}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Label.Border}" />
+        <Setter Property="BorderThickness" Value="{DynamicResource Label.BorderThickness}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Label">
@@ -19,31 +24,39 @@
                             VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                             RecognizesAccessKey="True" />
                     </Border>
-                    <ControlTemplate.Triggers>
-                        <Trigger Property="IsEnabled" Value="false">
-                            <Setter Property="Foreground">
-                                <Setter.Value>
-                                    <SolidColorBrush Color="{DynamicResource DisabledForegroundColor}" />
-                                </Setter.Value>
-                            </Setter>
-                        </Trigger>
-                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
     </Style>
 
-    <!--
     <Style x:Key="{x:Type Label}"
        BasedOn="{StaticResource {x:Type Label}}"
        TargetType="{x:Type Label}"/>
 
+    <Style x:Key="{x:Type Frame}"
+       BasedOn="{StaticResource {x:Type Label}}"
+       TargetType="{x:Type Frame}"/>
+
+    <Style x:Key="{x:Type eto:PanelHandler}"
+       BasedOn="{StaticResource {x:Type Label}}"
+       TargetType="{x:Type eto:PanelHandler}"/>
+
     <Style x:Key="{x:Type eto:EtoLabel}"
        BasedOn="{StaticResource {x:Type Label}}"
        TargetType="{x:Type eto:EtoLabel}"/>
-
     <Style x:Key="{x:Type eto:LabelHandler}"
        BasedOn="{StaticResource {x:Type Label}}"
        TargetType="{x:Type eto:LabelHandler}"/>
-    -->
+
+    <Style x:Key="{x:Type mwc:DateTimePicker}"
+       BasedOn="{StaticResource {x:Type Label}}"
+       TargetType="{x:Type mwc:DateTimePicker}"/>
+
+    <Style x:Key="{x:Type mwc:DateTimeUpDown}"
+       BasedOn="{StaticResource {x:Type Label}}"
+       TargetType="{x:Type mwc:DateTimeUpDown}"/>
+
+    <Style x:Key="{x:Type mwc:ColorPicker}"
+       BasedOn="{StaticResource {x:Type Label}}"
+       TargetType="{x:Type mwc:ColorPicker}"/>
 </ResourceDictionary>
