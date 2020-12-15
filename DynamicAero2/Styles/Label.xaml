@@ -33,7 +33,7 @@
         </Setter>
     </Style>
 
-
+    <!--
     <Style x:Key="{x:Type Label}"
        BasedOn="{StaticResource {x:Type Label}}"
        TargetType="{x:Type Label}"/>
@@ -45,5 +45,5 @@
     <Style x:Key="{x:Type eto:LabelHandler}"
        BasedOn="{StaticResource {x:Type Label}}"
        TargetType="{x:Type eto:LabelHandler}"/>
-
+    -->
 </ResourceDictionary>
