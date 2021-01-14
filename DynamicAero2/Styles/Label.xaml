@@ -37,9 +37,29 @@
        BasedOn="{StaticResource {x:Type Label}}"
        TargetType="{x:Type Frame}"/>
 
+    <Style x:Key="{x:Type Border}"
+       BasedOn="{StaticResource {x:Type Label}}"
+       TargetType="{x:Type Border}"/>
+
+    <Style x:Key="{x:Type Panel}"
+       BasedOn="{StaticResource {x:Type Label}}"
+       TargetType="{x:Type Panel}"/>
+
     <Style x:Key="{x:Type eto:PanelHandler}"
        BasedOn="{StaticResource {x:Type Label}}"
        TargetType="{x:Type eto:PanelHandler}"/>
+
+    <Style x:Key="{x:Type eto:SplitterHandler}"
+       BasedOn="{StaticResource {x:Type Label}}"
+       TargetType="{x:Type eto:SplitterHandler}"/>
+
+    <Style x:Key="{x:Type eto:EtoExpander}"
+       BasedOn="{StaticResource {x:Type Label}}"
+       TargetType="{x:Type eto:EtoExpander}"/>
+
+    <Style x:Key="{x:Type eto:EtoGrid}"
+       BasedOn="{StaticResource {x:Type Label}}"
+       TargetType="{x:Type eto:EtoGrid}"/>
 
     <Style x:Key="{x:Type eto:EtoLabel}"
        BasedOn="{StaticResource {x:Type Label}}"
