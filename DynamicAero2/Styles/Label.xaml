@@ -2,6 +2,8 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:eto="clr-namespace:Eto.Wpf.Forms.Controls;assembly=Eto.Wpf"                                        
                     xmlns:mwc="clr-namespace:Xceed.Wpf.Toolkit;assembly=Xceed.Wpf.Toolkit"
+                    xmlns:swf="clr-namespace:System.Windows.Forms;assembly=System.Windows.Forms"
+                    xmlns:swc="clr-namespace:System.Windows.Controls;assembly=System.Windows.Controls"
                     >
 
     <Style x:Key="BaseLabelStyle" TargetType="{x:Type Label}">
@@ -45,6 +47,18 @@
        BasedOn="{StaticResource {x:Type Label}}"
        TargetType="{x:Type Panel}"/>
 
+    <Style x:Key="{x:Type eto:ImageViewHandler}"
+       BasedOn="{StaticResource {x:Type Label}}"
+       TargetType="{x:Type eto:ImageViewHandler}"/>
+
+    <Style x:Key="{x:Type Grid}"
+       BasedOn="{StaticResource {x:Type Label}}"
+       TargetType="{x:Type Grid}"/>
+
+    <Style x:Key="{x:Type eto:ExpanderHandler}"
+       BasedOn="{StaticResource {x:Type Label}}"
+       TargetType="{x:Type eto:ExpanderHandler}"/>
+
     <Style x:Key="{x:Type eto:PanelHandler}"
        BasedOn="{StaticResource {x:Type Label}}"
        TargetType="{x:Type eto:PanelHandler}"/>
@@ -60,6 +74,10 @@
     <Style x:Key="{x:Type eto:EtoGrid}"
        BasedOn="{StaticResource {x:Type Label}}"
        TargetType="{x:Type eto:EtoGrid}"/>
+
+    <Style x:Key="{x:Type eto:ScrollableHandler}"
+       BasedOn="{StaticResource {x:Type Label}}"
+       TargetType="{x:Type eto:ScrollableHandler}"/>
 
     <Style x:Key="{x:Type eto:EtoLabel}"
        BasedOn="{StaticResource {x:Type Label}}"
@@ -79,4 +97,32 @@
     <Style x:Key="{x:Type mwc:ColorPicker}"
        BasedOn="{StaticResource {x:Type Label}}"
        TargetType="{x:Type mwc:ColorPicker}"/>
+
+    <Style x:Key="{x:Type swf:Panel}"
+       BasedOn="{StaticResource {x:Type Label}}"
+       TargetType="{x:Type swf:Panel}"/>
+
+    <Style x:Key="{x:Type swf:Control}"
+       BasedOn="{StaticResource {x:Type Label}}"
+       TargetType="{x:Type swf:Control}"/>
+
+    <Style x:Key="{x:Type swf:UserControl}"
+       BasedOn="{StaticResource {x:Type Label}}"
+       TargetType="{x:Type swf:UserControl}"/>
+
+    <Style x:Key="{x:Type swf:ContainerControl}"
+       BasedOn="{StaticResource {x:Type Label}}"
+       TargetType="{x:Type swf:ContainerControl}"/>
+
+    <Style x:Key="{x:Type swf:Form}"
+       BasedOn="{StaticResource {x:Type Label}}"
+       TargetType="{x:Type swf:Form}"/>
+
+    <Style x:Key="{x:Type swf:FixedPanel}"
+       BasedOn="{StaticResource {x:Type Label}}"
+       TargetType="{x:Type swf:FixedPanel}"/>
+
+    <Style x:Key="{x:Type swf:Padding}"
+       BasedOn="{StaticResource {x:Type Label}}"
+       TargetType="{x:Type swf:Padding}"/>
 </ResourceDictionary>
