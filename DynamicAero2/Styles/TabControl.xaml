@@ -88,12 +88,9 @@
         </Setter>
     </Style>
 
-    <Style x:Key="{x:Type eto:TabControlHandler}"
+    <Style x:Key="{x:Type eto:EtoTabControl}"
        BasedOn="{StaticResource {x:Type TabControl}}"
-       TargetType="{x:Type eto:TabControlHandler}"/>
+       TargetType="{x:Type eto:EtoTabControl}"/>
 
-    <Style x:Key="{x:Type eto:TabPageHandler}"
-       BasedOn="{StaticResource {x:Type TabControl}}"
-       TargetType="{x:Type eto:TabPageHandler}"/>
 
 </ResourceDictionary>
