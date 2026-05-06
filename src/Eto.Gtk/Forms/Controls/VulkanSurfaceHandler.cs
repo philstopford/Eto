@@ -253,7 +253,26 @@ namespace Eto.GtkSharp.Forms.Controls
 		{
 			_surfaceAlive = true;
 			Callback.OnSurfaceCreated(Widget, EventArgs.Empty);
-			Callback.OnRender(Widget, new VulkanRenderEventArgs());
+
+			// Defer the initial render to the next main-loop iteration, exactly
+			// as HandleDrawn and HandleSizeAllocated do.  FireSurfaceCreated is
+			// called from OnRealized → HandleRealized, which is a GTK signal
+			// handler.  Calling eglSwapBuffers (OpenGL) or vkQueuePresentKHR
+			// (Vulkan) from inside a GTK signal handler causes the same Wayland
+			// re-entrancy issue that was fixed in HandleDrawn: the compositor
+			// receives a wl_surface_commit while libwayland is already inside
+			// an event dispatch loop, corrupting protocol state and making all
+			// subsequent frames render as a solid black surface.
+			if (!_renderQueued)
+			{
+				_renderQueued = true;
+				Application.Instance.AsyncInvoke(() =>
+				{
+					_renderQueued = false;
+					if (_surfaceAlive)
+						Callback.OnRender(Widget, new VulkanRenderEventArgs());
+				});
+			}
 		}
 
 		void TearDownSurface()
