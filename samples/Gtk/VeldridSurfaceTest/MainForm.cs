@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Eto.Drawing;
 using Eto.Forms;
 using Veldrid;
+using Veldrid.OpenGL;
 
 namespace VeldridSurfaceTest;
 
@@ -28,40 +29,59 @@ namespace VeldridSurfaceTest;
 ///  │  [Pause/Resume]  [Clear Markers]  [Clear Log]        │
 ///  └──────────────────────────────────────────────────────┘
 ///
-/// The Drawable in the upper section provides all mouse input and renders a
-/// lightweight Eto wireframe of the cube.  The same yaw / pitch / zoom values
-/// are forwarded to <see cref="VeldridRenderer.RenderFrame"/> so the Veldrid
-/// solid cube below always matches the wireframe exactly.
+/// Backend selection
+/// ─────────────────
+///  The dropdown lets you switch between the Veldrid-supported backends at
+///  runtime.  On GTK/Linux the following are available:
 ///
-/// Backend notes
-/// ─────────────
-///  Vulkan (Linux/GTK)
-///    Use <see cref="VulkanSurface"/> — its SurfaceCreated event provides the
-///    wl_display + wl_surface (Wayland) or XDisplay + XWindow (X11) handles that
-///    Veldrid needs via SwapchainSource.CreateWayland / CreateXlib.
+///  Vulkan  — Preferred.  Uses the wl_surface (Wayland) or XWindow (X11)
+///    handle that VulkanSurface exposes.  Requires libvulkan.so.1 and a
+///    compatible GPU driver (Mesa radv/anv or NVIDIA 500+).
 ///
-///  OpenGL (Linux/GTK)
-///    Requires a GLX or EGL context attached to an X11/Wayland window.
-///    On X11: create a GLX context with glXCreateContext, expose the window handle
-///    from an Eto Drawable's platform view, and supply an OpenGLPlatformInfo to
-///    GraphicsDevice.CreateOpenGL.
-///    On Wayland: use EGL (eglCreateContext / eglCreateWindowSurface) instead of GLX.
+///  OpenGL  — Fallback.  Also uses the native window handle from VulkanSurface:
+///    • X11: GLX context (libGL.so.1) bound to the XWindow.
+///    • Wayland: EGL context (libEGL.so.1 + libwayland-egl.so.1) bound to
+///      a wl_egl_window wrapping the wl_surface.
+///    Requires OpenGL 3.3 Core or later (Mesa or proprietary driver).
 ///
-///  Direct3D 11 (Windows)
-///    Retrieve the HWND from an Eto WinForms Drawable or Panel (Control.Handle),
-///    create SwapchainSource.CreateWin32(hwnd, hinstance), and call
+///  Direct3D 11 (Windows only)
+///    Retrieve the HWND from an Eto WinForms Drawable, create
+///    SwapchainSource.CreateWin32(hwnd, hinstance), and call
 ///    GraphicsDevice.CreateD3D11(options, swapchainDesc).
 ///
-///  Metal (macOS)
+///  Metal (macOS only)
 ///    Retrieve the NSView handle from an Eto.Mac DrawableHandler.NativeControl,
 ///    create SwapchainSource.CreateNSWindow(nsWindowHandle), and call
 ///    GraphicsDevice.CreateMetal(options, swapchainDesc).
+///
+/// Automatic fallback
+/// ──────────────────
+///  If the selected backend fails (e.g. Vulkan not installed), the code
+///  automatically tries OpenGL.  A message is logged explaining the situation.
 /// </summary>
 public class MainForm : Form
 {
     // ── Veldrid objects ───────────────────────────────────────────────────────
     GraphicsDevice?   _gd;
     VeldridRenderer?  _renderer;
+
+    // ── Saved surface state for backend hot-switching ─────────────────────────
+    IVulkanSurfaceInfo? _surfaceInfo;    // last SurfaceCreated info
+    VulkanSurface?      _vulkanSurface;  // the VulkanSurface widget
+
+    // ── Backend selection ─────────────────────────────────────────────────────
+    // Dropdown index 0 = Vulkan, 1 = OpenGL, 2+ = reference-only on Linux.
+    GraphicsBackend _desiredBackend = GraphicsBackend.Vulkan;
+    DropDown        _backendDrop    = null!;
+
+    // ── OpenGL context handles (for cleanup on teardown) ──────────────────────
+    // GLX path (X11):
+    IntPtr _glxCtx;              // GLX context pointer
+    // EGL path (Wayland or X11-EGL):
+    IntPtr _eglDpy;              // EGL display
+    IntPtr _eglCtx;              // EGL context
+    IntPtr _eglSurf;             // EGL surface
+    IntPtr _wlEglWindow;         // wl_egl_window* (Wayland only; zero on X11)
 
     // ── Shared camera state (Drawable + VeldridRenderer stay in sync) ─────────
     float _userYaw   =  0.4f;   // accumulated LMB-drag horizontal offset (radians)
@@ -118,28 +138,22 @@ public class MainForm : Form
         viewport.MouseWheel += ViewportMouseWheel;
 
         // ── VulkanSurface — Veldrid renders into this ────────────────────────
+        // The VulkanSurface exposes native display/window handles (wl_surface
+        // or XWindow) which we use for BOTH the Vulkan and OpenGL backends.
         var surface = new VulkanSurface();
-        surface.SurfaceCreated   += (s, e) => OnSurfaceCreated(surface);
-        surface.SurfaceDestroyed += (s, e) => OnSurfaceDestroyed();
-        surface.Render           += (s, e) => OnVulkanRender(surface);
+        _vulkanSurface = surface;
+        surface.SurfaceCreated   += (_, _) => OnSurfaceCreated(surface);
+        surface.SurfaceDestroyed += (_, _) => OnSurfaceDestroyed();
+        surface.Render           += (_, _) => OnVulkanRender(surface);
 
         // ── Backend selector ─────────────────────────────────────────────────
-        // On GTK / Linux the Vulkan backend is fully operational.
-        // The other entries document how each backend would be initialised on its
-        // respective platform — see the class-level XML comments above.
-        var backendDrop = new DropDown();
-        backendDrop.Items.Add("Vulkan  (Linux / GTK  — wl_surface or XWindow handle)");
-        backendDrop.Items.Add("OpenGL  (Linux / GTK  — GLX or EGL context required)");
-        backendDrop.Items.Add("Direct3D 11  (Windows — HWND from WinForms control)");
-        backendDrop.Items.Add("Metal  (macOS — NSView handle from Eto.Mac)");
-        backendDrop.SelectedIndex = 0;
-        backendDrop.SelectedIndexChanged += (_, _) =>
-        {
-            var idx = backendDrop.SelectedIndex;
-            if (idx != 0)
-                Log($"Backend #{idx} is shown for reference only on this platform. "
-                  + "Vulkan is the active backend for GTK/Linux.");
-        };
+        _backendDrop = new DropDown();
+        _backendDrop.Items.Add("Vulkan   (Linux — wl_surface or XWindow → Vulkan swapchain)");
+        _backendDrop.Items.Add("OpenGL   (Linux — GLX on X11  |  EGL on Wayland)");
+        _backendDrop.Items.Add("Direct3D 11   (Windows only — HWND from WinForms control)");
+        _backendDrop.Items.Add("Metal   (macOS only — NSView handle from Eto.Mac)");
+        _backendDrop.SelectedIndex = 0;
+        _backendDrop.SelectedIndexChanged += OnBackendDropChanged;
 
         // ── Animation timer ──────────────────────────────────────────────────
         _animTimer = new UITimer { Interval = 1.0 / 60.0 };
@@ -155,7 +169,7 @@ public class MainForm : Form
             var elapsed = (DateTime.Now - _fpsEpoch).TotalSeconds;
             if (elapsed >= 1.0)
             {
-                _fps    = (int)(_fpsCount / elapsed);
+                _fps      = (int)(_fpsCount / elapsed);
                 _fpsCount = 0;
                 _fpsEpoch = DateTime.Now;
                 _lblFps.Text = _fps.ToString();
@@ -164,53 +178,60 @@ public class MainForm : Form
             viewport.Invalidate();   // repaint Eto wireframe
             surface.Invalidate();    // trigger VulkanSurface.Render → Veldrid frame
         };
+        _animTimer.Start();
 
-        Load   += (_, _) => _animTimer.Start();
-        UnLoad += (_, _) =>
-        {
-            _animTimer.Stop();
-            _renderer?.Dispose();
-            _gd?.Dispose();
-        };
+        Closing += (_, _) => { _animTimer.Stop(); TeardownVeldrid(); };
 
-        // ── Button row ───────────────────────────────────────────────────────
-        var btnToggleAnim = new Button { Text = "Pause Animation" };
+        // ── Buttons ──────────────────────────────────────────────────────────
+        var btnToggleAnim  = new Button { Text = "Pause" };
+        var btnClearMarkers = new Button { Text = "Clear Markers" };
+        var btnClearLog    = new Button { Text = "Clear Log" };
+
         btnToggleAnim.Click += (_, _) =>
         {
             _paused = !_paused;
-            btnToggleAnim.Text = _paused ? "Resume Animation" : "Pause Animation";
+            btnToggleAnim.Text = _paused ? "Resume" : "Pause";
         };
-
-        var btnClearMarkers = new Button { Text = "Clear Markers" };
-        btnClearMarkers.Click += (_, _) => { _markers.Clear(); viewport.Invalidate(); };
-
-        var btnClearLog = new Button { Text = "Clear Log" };
-        btnClearLog.Click += (_, _) => _log.Text = string.Empty;
+        btnClearMarkers.Click += (_, _) => { _markers.Clear(); };
+        btnClearLog.Click     += (_, _) => { _log.Text = ""; };
 
         // ── Layout ───────────────────────────────────────────────────────────
         Content = new TableLayout
         {
-            Padding = new Padding(6),
-            Spacing = new Size(0, 4),
+            Padding = new Padding(8),
+            Spacing = new Size(0, 6),
             Rows =
             {
-                // Interactive Drawable — fills available space.
-                new TableRow(new GroupBox
+                // Top: Eto wireframe viewport (interactive camera input)
+                new TableRow(new TableLayout
                 {
-                    Text    = "Camera Input (Eto Drawable — software wireframe)",
-                    Content = viewport,
+                    Rows =
+                    {
+                        new TableRow(new Label
+                        {
+                            Text = "Camera Input  (Eto software renderer)",
+                            Font = Fonts.Sans(9, FontStyle.Bold),
+                        }),
+                        new TableRow(viewport) { ScaleHeight = true },
+                    }
                 }) { ScaleHeight = true },
 
-                // VulkanSurface — Veldrid renders a GPU solid cube here.
-                new TableRow(new GroupBox
+                // Bottom: Veldrid GPU rendering surface
+                new TableRow(new TableLayout
                 {
-                    Text    = "Veldrid GPU Rendering (solid cube — same camera as above)",
-                    Content = surface,
-                    Height  = 220,
-                }),
+                    Rows =
+                    {
+                        new TableRow(new Label
+                        {
+                            Text = "Veldrid GPU Rendering  (VulkanSurface)",
+                            Font = Fonts.Sans(9, FontStyle.Bold),
+                        }),
+                        new TableRow(surface) { ScaleHeight = true },
+                    }
+                }) { ScaleHeight = true },
 
                 // Status / backend row
-                BuildStatusRow(backendDrop),
+                BuildStatusRow(_backendDrop),
 
                 // Event log
                 new TableRow(new TableLayout
@@ -231,6 +252,37 @@ public class MainForm : Form
 
         Log("Waiting for VulkanSurface.SurfaceCreated …");
         Log("LMB drag: orbit  |  Scroll: zoom  |  RMB click: place marker");
+        Log("Use the Backend dropdown to switch between Vulkan and OpenGL.");
+    }
+
+    // ── Backend hot-switching ─────────────────────────────────────────────────
+
+    void OnBackendDropChanged(object? sender, EventArgs e)
+    {
+        var idx = _backendDrop.SelectedIndex;
+
+        // Items 2+ (D3D11, Metal) are reference-only on Linux.
+        if (idx >= 2)
+        {
+            Log($"Backend #{idx} is platform-specific — see MainForm.cs comments for details.");
+            _backendDrop.SelectedIndex = _desiredBackend == GraphicsBackend.Vulkan ? 0 : 1;
+            return;
+        }
+
+        var newBackend = idx == 0 ? GraphicsBackend.Vulkan : GraphicsBackend.OpenGL;
+        if (newBackend == _desiredBackend) return;
+        _desiredBackend = newBackend;
+
+        Log($"Switching backend → {_desiredBackend} …");
+
+        // Reinitialise from the saved surface info (if the surface has already
+        // been created).  If it hasn't fired yet, InitializeVeldrid will be
+        // called from OnSurfaceCreated when the widget is realised.
+        if (_surfaceInfo != null && _vulkanSurface != null)
+        {
+            TeardownVeldrid();
+            InitializeVeldrid(_surfaceInfo, _vulkanSurface);
+        }
     }
 
     // ── VulkanSurface lifecycle ───────────────────────────────────────────────
@@ -246,79 +298,204 @@ public class MainForm : Form
         }
 
         Log($"SurfaceCreated  type={info.SurfaceType}  size={surface.Size}");
+        _surfaceInfo = info;
+
+        InitializeVeldrid(info, surface);
+    }
+
+    /// <summary>
+    /// Creates the Veldrid <see cref="GraphicsDevice"/> and
+    /// <see cref="VeldridRenderer"/> for the desired backend.
+    ///
+    /// Tries <see cref="_desiredBackend"/> first.  If that fails the code
+    /// automatically falls back to <see cref="GraphicsBackend.OpenGL"/> and
+    /// updates the dropdown to reflect the change.
+    /// </summary>
+    void InitializeVeldrid(IVulkanSurfaceInfo info, VulkanSurface surface)
+    {
+        bool isWayland = info.SurfaceType == VulkanSurfaceType.Wayland;
+        int  w = Math.Max(1, surface.Width);
+        int  h = Math.Max(1, surface.Height);
+
+        // ── Shared GraphicsDeviceOptions ──────────────────────────────────────
+        // D24_UNorm_S8_UInt is supported on all backends and gives a 24-bit
+        // depth buffer — required by VeldridRenderer.RenderFrame.
+        var options = new GraphicsDeviceOptions
+        {
+            Debug                            = false,
+            SwapchainDepthFormat             = Veldrid.PixelFormat.D24_UNorm_S8_UInt,
+            SyncToVerticalBlank              = false,
+            ResourceBindingModel             = ResourceBindingModel.Improved,
+            PreferDepthRangeZeroToOne        = true,
+            PreferStandardClipSpaceYDirection = true,
+        };
+
+        // Try the desired backend; if it fails, fall back to OpenGL.
+        bool created = TryCreateDevice(_desiredBackend, info, options, w, h);
+        if (!created && _desiredBackend != GraphicsBackend.OpenGL)
+        {
+            Log("  → falling back to OpenGL …");
+            _desiredBackend = GraphicsBackend.OpenGL;
+            Application.Instance.AsyncInvoke(() => _backendDrop.SelectedIndex = 1);
+            created = TryCreateDevice(GraphicsBackend.OpenGL, info, options, w, h);
+        }
+
+        if (!created || _gd == null)
+        {
+            Log("All backends failed — no GPU rendering available.");
+            _lblStatus.Text  = "No GPU backend available";
+            _lblBackend.Text = "–";
+            return;
+        }
 
         try
         {
-            // ── Build the SwapchainSource from the display-server handles ────────
-            //
-            // Wayland: SwapchainSource.CreateWayland(wl_display, wl_surface)
-            // X11:     SwapchainSource.CreateXlib(XDisplay*, XWindow)
-            //
-            // Windows equivalent (D3D11 / OpenGL / Vulkan):
-            //   SwapchainSource.CreateWin32(hwnd, hinstance)
-            //
-            // macOS equivalent (Metal / MoltenVK):
-            //   SwapchainSource.CreateNSWindow(nsWindowHandle)
-            //   SwapchainSource.CreateNSView(nsViewHandle)
-            SwapchainSource source;
-            if (info.SurfaceType == VulkanSurfaceType.Wayland)
-            {
-                source = SwapchainSource.CreateWayland(info.WlDisplay, info.WlSurface);
-                Log($"  wl_display = {FormatPtr(info.WlDisplay)}");
-                Log($"  wl_surface = {FormatPtr(info.WlSurface)}");
-                if (info.PreferredPhysicalDeviceDrmNode is string drm)
-                    Log($"  drm_node   = {drm}");
-            }
-            else
-            {
-                source = SwapchainSource.CreateXlib(info.XDisplay, (nint)info.XWindow);
-                Log($"  XDisplay   = {FormatPtr(info.XDisplay)}");
-                Log($"  XWindow    = 0x{info.XWindow:X}");
-            }
-
-            var swapchainDesc = new SwapchainDescription(
-                source,
-                (uint)Math.Max(1, surface.Width),
-                (uint)Math.Max(1, surface.Height),
-                Veldrid.PixelFormat.R32_Float,   // depth buffer (D32 float)
-                syncToVerticalBlank: false);
-
-            // ── Create the Veldrid GraphicsDevice ────────────────────────────
-            //
-            // GraphicsDevice.CreateVulkan  — Vulkan (Linux, Windows, macOS via MoltenVK)
-            // GraphicsDevice.CreateD3D11   — Direct3D 11 (Windows only)
-            // GraphicsDevice.CreateMetal   — Metal (macOS only)
-            // GraphicsDevice.CreateOpenGL  — OpenGL (all platforms, needs a GL context)
-            //
-            // PreferStandardClipSpaceYDirection lets us write shaders in OpenGL
-            // convention (Y-up) and have Veldrid handle the backend-specific flip.
-            // PreferDepthRangeZeroToOne gives [0,1] depth range on all backends.
-            var options = new GraphicsDeviceOptions
-            {
-                Debug                           = false,
-                SwapchainDepthFormat            = Veldrid.PixelFormat.R32_Float,
-                SyncToVerticalBlank             = false,
-                ResourceBindingModel            = ResourceBindingModel.Improved,
-                PreferDepthRangeZeroToOne       = true,
-                PreferStandardClipSpaceYDirection = true,
-            };
-
-            _gd = GraphicsDevice.CreateVulkan(options, swapchainDesc);
-            Log($"GraphicsDevice created  backend={_gd.BackendType}  device={_gd.DeviceName}");
-
-            _renderer    = new VeldridRenderer(_gd,
+            _renderer = new VeldridRenderer(_gd,
                 (uint)Math.Max(1, surface.Width),
                 (uint)Math.Max(1, surface.Height));
-            _lastRender  = DateTime.Now;
+            _lastRender = DateTime.Now;
 
             _lblBackend.Text = _gd.BackendType.ToString();
             _lblStatus.Text  = $"Rendering ({_gd.DeviceName})";
+            Log($"Renderer ready  backend={_gd.BackendType}  device={_gd.DeviceName}");
         }
         catch (Exception ex)
         {
-            Log($"Veldrid initialisation failed: {ex.Message}");
-            _lblStatus.Text  = $"Error: {ex.Message}";
+            Log($"VeldridRenderer creation failed: {ex.Message}");
+            _lblStatus.Text  = $"Renderer error: {ex.Message}";
             _lblBackend.Text = "–";
+            _gd?.Dispose();
+            _gd = null;
+        }
+    }
+
+    /// <summary>
+    /// Attempts to create a <see cref="GraphicsDevice"/> for the given
+    /// <paramref name="backend"/>.  Returns <see langword="false"/> on any
+    /// failure, leaving <see cref="_gd"/> unchanged.
+    /// </summary>
+    bool TryCreateDevice(
+        GraphicsBackend backend,
+        IVulkanSurfaceInfo info,
+        GraphicsDeviceOptions options,
+        int w, int h)
+    {
+        bool isWayland = info.SurfaceType == VulkanSurfaceType.Wayland;
+        try
+        {
+            switch (backend)
+            {
+                // ── Vulkan ────────────────────────────────────────────────────
+                case GraphicsBackend.Vulkan:
+                {
+                    // Build the platform-specific swapchain source from the
+                    // native window handles that VulkanSurface exposes.
+                    SwapchainSource source;
+                    if (isWayland)
+                    {
+                        source = SwapchainSource.CreateWayland(info.WlDisplay, info.WlSurface);
+                        Log($"  wl_display = {FormatPtr(info.WlDisplay)}");
+                        Log($"  wl_surface = {FormatPtr(info.WlSurface)}");
+                        if (info.PreferredPhysicalDeviceDrmNode is string drm)
+                            Log($"  drm_node   = {drm}");
+                    }
+                    else
+                    {
+                        source = SwapchainSource.CreateXlib(info.XDisplay, (nint)info.XWindow);
+                        Log($"  XDisplay   = {FormatPtr(info.XDisplay)}");
+                        Log($"  XWindow    = 0x{info.XWindow:X}");
+                    }
+
+                    var swapchainDesc = new SwapchainDescription(
+                        source, (uint)w, (uint)h,
+                        Veldrid.PixelFormat.D24_UNorm_S8_UInt,
+                        syncToVerticalBlank: false);
+
+                    Log("  Creating Vulkan device …");
+                    _gd = GraphicsDevice.CreateVulkan(options, swapchainDesc);
+                    Log($"  GraphicsDevice created  backend={_gd.BackendType}");
+                    return true;
+                }
+
+                // ── OpenGL ────────────────────────────────────────────────────
+                // The VulkanSurface's native window handle is reused here — for
+                // OpenGL we bind a GL context directly to the same X11 window or
+                // Wayland wl_surface instead of creating a Vulkan swapchain.
+                case GraphicsBackend.OpenGL:
+                {
+                    OpenGLPlatformInfo? platformInfo;
+
+                    if (isWayland)
+                    {
+                        // Wayland path: EGL + wl_egl_window
+                        Log("  Creating EGL context (Wayland) …");
+                        platformInfo = OpenGLHelper.TryCreateEglPlatformInfo(
+                            xDisplay:  IntPtr.Zero,  xWindow:  0,
+                            wlDisplay: info.WlDisplay, wlSurface: info.WlSurface,
+                            width: w, height: h,
+                            outEglDisplay:  out _eglDpy,
+                            outEglContext:  out _eglCtx,
+                            outEglSurface:  out _eglSurf,
+                            outWlEglWindow: out _wlEglWindow);
+
+                        if (platformInfo == null)
+                        {
+                            Log("  EGL context creation failed — is libEGL.so.1 / libwayland-egl.so.1 installed?");
+                            return false;
+                        }
+                        Log($"  EGL ready  display={FormatPtr(_eglDpy)}");
+                    }
+                    else
+                    {
+                        // X11 path: try GLX first, then fall back to EGL.
+                        Log("  Creating GLX context (X11) …");
+                        platformInfo = OpenGLHelper.TryCreateGlxPlatformInfo(
+                            info.XDisplay, info.XWindow, out _glxCtx);
+
+                        if (platformInfo == null)
+                        {
+                            Log("  GLX failed — trying EGL on X11 …");
+                            platformInfo = OpenGLHelper.TryCreateEglPlatformInfo(
+                                xDisplay:  info.XDisplay, xWindow: info.XWindow,
+                                wlDisplay: IntPtr.Zero,   wlSurface: IntPtr.Zero,
+                                width: w, height: h,
+                                outEglDisplay:  out _eglDpy,
+                                outEglContext:  out _eglCtx,
+                                outEglSurface:  out _eglSurf,
+                                outWlEglWindow: out _wlEglWindow);
+
+                            if (platformInfo == null)
+                            {
+                                Log("  EGL on X11 also failed.");
+                                return false;
+                            }
+                            Log($"  EGL (X11) ready  display={FormatPtr(_eglDpy)}");
+                        }
+                        else
+                        {
+                            Log($"  GLX ready  context={FormatPtr(_glxCtx)}");
+                        }
+                    }
+
+                    Log("  Creating OpenGL device …");
+                    _gd = GraphicsDevice.CreateOpenGL(options, platformInfo, (uint)w, (uint)h);
+                    Log($"  GraphicsDevice created  backend={_gd.BackendType}");
+                    return true;
+                }
+
+                default:
+                    Log($"  Backend {backend} is not supported on this platform.");
+                    return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            // Unwrap TypeInitializationException from missing Vulkan loader.
+            var root = ex;
+            while (root.InnerException != null) root = root.InnerException;
+            Log($"  {backend} init failed: {root.Message}");
+            if (root != ex) Log($"    (caused by: {ex.GetType().Name})");
+            return false;
         }
     }
 
@@ -326,10 +503,16 @@ public class MainForm : Form
     {
         if (_renderer == null || _gd == null) return;
 
+        int w = Math.Max(1, surface.Width);
+        int h = Math.Max(1, surface.Height);
+
+        // For Wayland EGL: the wl_egl_window must be resized before the frame
+        // so the compositor knows the new dimensions before we swap.
+        if (_wlEglWindow != IntPtr.Zero)
+            OpenGLHelper.ResizeWlEglWindow(_wlEglWindow, w, h);
+
         // Handle swapchain resize (VeldridRenderer.Resize is a no-op if unchanged).
-        _renderer.Resize(
-            (uint)Math.Max(1, surface.Width),
-            (uint)Math.Max(1, surface.Height));
+        _renderer.Resize((uint)w, (uint)h);
 
         // Compute the combined camera angles — same formula as the Eto wireframe
         // so both cubes always display exactly the same orientation.
@@ -351,14 +534,41 @@ public class MainForm : Form
 
     void OnSurfaceDestroyed()
     {
-        _renderer?.Dispose();
-        _renderer = null;
-        _gd?.Dispose();
-        _gd = null;
-
+        TeardownVeldrid();
         Log("SurfaceDestroyed — Veldrid resources disposed.");
         _lblStatus.Text  = "Surface destroyed";
         _lblBackend.Text = "–";
+    }
+
+    /// <summary>
+    /// Disposes the Veldrid device, renderer, and any GL context handles.
+    /// Safe to call multiple times or before the device is created.
+    /// </summary>
+    void TeardownVeldrid()
+    {
+        _renderer?.Dispose();
+        _renderer = null;
+
+        try { _gd?.WaitForIdle(); } catch { }
+        _gd?.Dispose();
+        _gd = null;
+
+        // GLX cleanup (X11)
+        if (_glxCtx != IntPtr.Zero && _surfaceInfo != null)
+        {
+            OpenGLHelper.DestroyGlxContext(_surfaceInfo.XDisplay, _glxCtx);
+            _glxCtx = IntPtr.Zero;
+        }
+
+        // EGL cleanup (Wayland or X11-EGL)
+        if (_eglDpy != IntPtr.Zero)
+        {
+            OpenGLHelper.DestroyEglContext(_eglDpy, _eglCtx, _eglSurf, _wlEglWindow);
+            _eglDpy       = IntPtr.Zero;
+            _eglCtx       = IntPtr.Zero;
+            _eglSurf      = IntPtr.Zero;
+            _wlEglWindow  = IntPtr.Zero;
+        }
     }
 
     // ── Drawable: painting ────────────────────────────────────────────────────
@@ -530,7 +740,7 @@ public class MainForm : Form
                 new TableCell(_lblFps),
                 new TableCell(new Label { Text = "  Frames:", VerticalAlignment = VerticalAlignment.Center }),
                 new TableCell(_lblFrames),
-                new TableCell(new Label { Text = "  Backend:", VerticalAlignment = VerticalAlignment.Center }),
+                new TableCell(new Label { Text = "  Active:", VerticalAlignment = VerticalAlignment.Center }),
                 new TableCell(_lblBackend)
             )
         ) { Spacing = new Size(4, 0) };
