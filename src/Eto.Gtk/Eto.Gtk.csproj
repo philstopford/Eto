@@ -1,11 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks Condition="$(TargetFrameworkOverride) == ''">netstandard2.0;net6.0;net8.0;net10.0</TargetFrameworks>
     <TargetFrameworks Condition="$(TargetFrameworkOverride) != ''">$(TargetFrameworkOverride)</TargetFrameworks>
     <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
     <RootNamespace>Eto.GtkSharp</RootNamespace>
     <DefineConstants>$(DefineConstants);GTK3;GTKCORE</DefineConstants>
+    <TargetFramework>net10.0</TargetFramework>
   </PropertyGroup>
   <PropertyGroup>
     <PackageId>Eto.Platform.Gtk</PackageId>
