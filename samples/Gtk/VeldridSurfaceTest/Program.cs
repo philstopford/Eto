@@ -19,37 +19,64 @@ static class Program
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             InstallLibDlResolver();
 
-        new Application(new Eto.GtkSharp.Platform()).Run(new MainForm());
+        var app = new Application(new Eto.GtkSharp.Platform());
+
+        // Now that Eto.GtkSharp is fully loaded, also plug the shim into
+        // Eto.Gtk's own DllImportResolverManager so any libdl calls routed
+        // through that chain are covered too.
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            RegisterLibDlWithEtoGtk();
+
+        app.Run(new MainForm());
     }
 
+    // The libdl resolver lambda — stored so the same delegate instance can be
+    // fed into both NativeLibrary.SetDllImportResolver and
+    // Eto.GtkSharp.DllImportResolverManager.Add().
+    static readonly DllImportResolver s_libDlResolver = static (name, assembly, path) =>
+    {
+        // Redirect both the unversioned "libdl" / "dl" names that older
+        // P/Invoke code uses to the versioned stub present on modern glibc.
+        if (name is "libdl" or "dl")
+        {
+            if (NativeLibrary.TryLoad("libdl.so.2", assembly, path, out var h)) return h;
+            if (NativeLibrary.TryLoad("libc.so.6",  assembly, path, out h))     return h;
+        }
+        return IntPtr.Zero;
+    };
+
     /// <summary>
-    /// Installs a <see cref="NativeLibrary.SetDllImportResolver"/> resolver for
-    /// every currently loaded assembly and hooks <see cref="AppDomain.AssemblyLoad"/>
-    /// to install it for assemblies loaded later (e.g. Veldrid, NativeLibraryLoader).
+    /// Installs the libdl shim resolver for every currently-loaded assembly
+    /// and hooks <see cref="AppDomain.AssemblyLoad"/> for assemblies loaded
+    /// later (e.g. Veldrid, NativeLibraryLoader).
+    ///
+    /// Eto.Gtk assemblies are deliberately skipped: they own their resolver
+    /// slot via <c>Eto.GtkSharp.DllImportResolverManager</c> which calls
+    /// <see cref="NativeLibrary.SetDllImportResolver"/> in its own static
+    /// constructor.  Registering ours on the same assembly first would cause
+    /// <c>DllImportResolverManager..cctor()</c> to throw
+    /// <see cref="InvalidOperationException"/> at start-up.
+    /// Instead we plug into its resolver chain via <c>Add()</c> after the
+    /// platform is initialised.
     /// </summary>
     static void InstallLibDlResolver()
     {
+        // ── Per-assembly registration (for Veldrid etc.) ──────────────────
         void TryRegister(Assembly asm)
         {
-            try
-            {
-                NativeLibrary.SetDllImportResolver(asm, static (name, assembly, path) =>
-                {
-                    // Redirect both the unversioned "libdl" / "dl" names that
-                    // older P/Invoke code uses to the versioned stub.
-                    if (name is "libdl" or "dl")
-                    {
-                        if (NativeLibrary.TryLoad("libdl.so.2", assembly, path, out var h)) return h;
-                        if (NativeLibrary.TryLoad("libc.so.6",  assembly, path, out h))     return h;
-                    }
-                    return IntPtr.Zero;
-                });
-            }
+            // Skip Eto.* assemblies — they manage their own DllImportResolver
+            // slot through DllImportResolverManager and would crash if we
+            // pre-empt them.
+            var asmName = asm.GetName().Name;
+            if (asmName != null && asmName.StartsWith("Eto", StringComparison.Ordinal))
+                return;
+
+            try { NativeLibrary.SetDllImportResolver(asm, s_libDlResolver); }
             catch
             {
-                // SetDllImportResolver throws InvalidOperationException if a
-                // resolver is already registered for this assembly, and
-                // ArgumentException for dynamic assemblies.  Both are safe to ignore.
+                // InvalidOperationException  – another resolver is already set.
+                // ArgumentException          – dynamic assembly.
+                // Both are safe to ignore.
             }
         }
 
@@ -57,5 +84,37 @@ static class Program
             TryRegister(asm);
 
         AppDomain.CurrentDomain.AssemblyLoad += (_, e) => TryRegister(e.LoadedAssembly);
+    }
+
+    /// <summary>
+    /// Called by <see cref="MainForm"/> after the Eto.Gtk platform has been
+    /// fully initialised, so that the libdl shim is also active for any
+    /// native calls routed through <c>DllImportResolverManager</c>.
+    /// </summary>
+    internal static void RegisterLibDlWithEtoGtk()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            return;
+        try
+        {
+            // DllImportResolverManager.Add() is internal to Eto.Gtk, so we
+            // reach it via reflection to avoid a hard assembly reference that
+            // would break non-Gtk builds.
+            var managerType = Type.GetType(
+                "Eto.GtkSharp.DllImportResolverManager, Eto.Gtk",
+                throwOnError: false);
+            var addMethod = managerType?.GetMethod(
+                "Add",
+                BindingFlags.Public | BindingFlags.Static,
+                null,
+                new[] { typeof(DllImportResolver) },
+                null);
+            addMethod?.Invoke(null, new object[] { s_libDlResolver });
+        }
+        catch
+        {
+            // Reflection failure is non-fatal; Veldrid assemblies already
+            // have the resolver registered directly via SetDllImportResolver.
+        }
     }
 }
