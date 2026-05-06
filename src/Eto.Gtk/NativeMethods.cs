@@ -519,6 +519,21 @@ namespace Eto.GtkSharp
 
 			[DllImport(libgdk, CallingConvention = CallingConvention.Cdecl)]
 			public extern static IntPtr gdk_pixbuf_get_from_window(IntPtr window, int x, int y, int width, int height);
+
+			// ── Wayland / X11 GDK accessors (Linux-only, used by VulkanSurfaceHandler) ──
+
+			[DllImport(libgdk, CallingConvention = CallingConvention.Cdecl)]
+			public extern static IntPtr gdk_wayland_display_get_wl_display(IntPtr display);
+
+			[DllImport(libgdk, CallingConvention = CallingConvention.Cdecl)]
+			public extern static IntPtr gdk_wayland_window_get_wl_surface(IntPtr window);
+
+			[DllImport(libgdk, CallingConvention = CallingConvention.Cdecl)]
+			public extern static IntPtr gdk_x11_display_get_xdisplay(IntPtr display);
+
+			[DllImport(libgdk, CallingConvention = CallingConvention.Cdecl)]
+			public extern static ulong gdk_x11_window_get_xid(IntPtr window);
+
 			[DllImport(libpango, CallingConvention = CallingConvention.Cdecl)]
 			public extern static bool pango_font_has_char(IntPtr font, int wc);
 			[DllImport(libpangocairo, CallingConvention = CallingConvention.Cdecl)]
@@ -539,31 +554,6 @@ namespace Eto.GtkSharp
 			public extern static IntPtr FcConfigGetFonts(IntPtr fc, FcSetName setName);
 			[DllImport(libpangoft2, CallingConvention = CallingConvention.Cdecl)]
 			public extern static int FcPatternGetString(IntPtr p, string objectname, int n, out IntPtr s);
-
-#if GTK3
-			// ── GDK Wayland backend ─────────────────────────────────────────────────────
-
-			/// <summary>Returns the <c>wl_display*</c> used by the GDK Wayland backend.</summary>
-			[DllImport(libgdk, CallingConvention = CallingConvention.Cdecl)]
-			public extern static IntPtr gdk_wayland_display_get_wl_display(IntPtr display);
-
-			/// <summary>
-			/// Returns the <c>wl_surface*</c> backing the given <c>GdkWindow</c> on Wayland.
-			/// Only valid for top-level GDK windows.
-			/// </summary>
-			[DllImport(libgdk, CallingConvention = CallingConvention.Cdecl)]
-			public extern static IntPtr gdk_wayland_window_get_wl_surface(IntPtr window);
-
-			// ── GDK X11 backend ─────────────────────────────────────────────────────────
-
-			/// <summary>Returns the Xlib <c>Display*</c> used by the GDK X11 backend.</summary>
-			[DllImport(libgdk, CallingConvention = CallingConvention.Cdecl)]
-			public extern static IntPtr gdk_x11_display_get_xdisplay(IntPtr display);
-
-			/// <summary>Returns the X11 <c>Window</c> (XID) for the given <c>GdkWindow</c>.</summary>
-			[DllImport(libgdk, CallingConvention = CallingConvention.Cdecl)]
-			public extern static ulong gdk_x11_window_get_xid(IntPtr window);
-#endif
 		}
 
 		static class NMMac
@@ -1551,45 +1541,20 @@ namespace Eto.GtkSharp
 				return NMWindows.FcPatternGetString(p, objectname, n, out s);
 		}
 
-#if GTK3
-		// ── GDK Wayland backend (Linux only) ─────────────────────────────────────
+		// ── Wayland / X11 GDK accessors (Linux-only, called by VulkanSurfaceHandler) ──
+		// These functions only exist in libgdk on Linux (Wayland / X11 GDK backends).
+		// They are intentionally not forwarded to NMMac / NMWindows.
 
-		/// <summary>Returns the <c>wl_display*</c> used by the GDK Wayland backend.</summary>
 		public static IntPtr gdk_wayland_display_get_wl_display(IntPtr display)
-		{
-			if (EtoEnvironment.Platform.IsLinux)
-				return NMLinux.gdk_wayland_display_get_wl_display(display);
-			return IntPtr.Zero;
-		}
+			=> NMLinux.gdk_wayland_display_get_wl_display(display);
 
-		/// <summary>
-		/// Returns the <c>wl_surface*</c> backing <paramref name="window"/> on Wayland.
-		/// Only meaningful for top-level GDK windows.
-		/// </summary>
 		public static IntPtr gdk_wayland_window_get_wl_surface(IntPtr window)
-		{
-			if (EtoEnvironment.Platform.IsLinux)
-				return NMLinux.gdk_wayland_window_get_wl_surface(window);
-			return IntPtr.Zero;
-		}
+			=> NMLinux.gdk_wayland_window_get_wl_surface(window);
 
-		// ── GDK X11 backend (Linux only) ─────────────────────────────────────────
-
-		/// <summary>Returns the Xlib <c>Display*</c> used by the GDK X11 backend.</summary>
 		public static IntPtr gdk_x11_display_get_xdisplay(IntPtr display)
-		{
-			if (EtoEnvironment.Platform.IsLinux)
-				return NMLinux.gdk_x11_display_get_xdisplay(display);
-			return IntPtr.Zero;
-		}
+			=> NMLinux.gdk_x11_display_get_xdisplay(display);
 
-		/// <summary>Returns the X11 window ID (<c>XID</c>) for <paramref name="window"/>.</summary>
 		public static ulong gdk_x11_window_get_xid(IntPtr window)
-		{
-			if (EtoEnvironment.Platform.IsLinux)
-				return NMLinux.gdk_x11_window_get_xid(window);
-			return 0;
-		}
-#endif
+			=> NMLinux.gdk_x11_window_get_xid(window);
 	}
 }
