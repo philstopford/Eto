@@ -65,6 +65,13 @@ public class NodeSocketType
 	/// <summary>3-D geometry object.</summary>
 	public static readonly NodeSocketType Geometry = new NodeSocketType("Geometry", Color.FromRgb(0x50E3C2));
 
+	/// <summary>
+	/// Control-flow (execution order) socket.  Rendered as a right-pointing triangle instead of a circle.
+	/// Use it to express evaluation order between nodes — for example connecting a shape to a simulation
+	/// input, or a pattern element to a pattern output.  Compatible only with other ControlFlow sockets.
+	/// </summary>
+	public static readonly NodeSocketType ControlFlow = new NodeSocketType("ControlFlow", Color.FromRgb(0xEEEEEE));
+
 	/// <summary>Universal type – compatible with every other type.</summary>
 	public static readonly NodeSocketType Any      = new NodeSocketType("Any",      Color.FromRgb(0x888888));
 }
@@ -110,6 +117,14 @@ public class NodeSocket
 	/// </summary>
 	public string Value { get; set; }
 
+	/// <summary>
+	/// Gets or sets whether this socket is displayed as a draggable connector on the canvas.
+	/// When <c>false</c> the socket and all of its connections are hidden from the canvas view
+	/// but remain present in the graph model and are accessible via a properties panel.
+	/// Defaults to <c>true</c>.
+	/// </summary>
+	public bool IsPinned { get; set; } = true;
+
 	/// <summary>Gets the list of active connections that include this socket.</summary>
 	public List<NodeConnection> Connections { get; } = new List<NodeConnection>();
 
@@ -152,6 +167,13 @@ public class NodeItem
 
 	/// <summary>Gets or sets arbitrary user data associated with this node.</summary>
 	public object Tag { get; set; }
+
+	/// <summary>
+	/// Gets the number of sockets that are not currently pinned (i.e. hidden from the canvas).
+	/// A positive value triggers the "N more…" indicator at the bottom of the rendered node.
+	/// </summary>
+	public int HiddenSocketCount =>
+		Inputs.Count(s => !s.IsPinned) + Outputs.Count(s => !s.IsPinned);
 
 	/// <summary>Width of the node in graph units (calculated by <see cref="NodeGraphView"/>).</summary>
 	internal float ComputedWidth { get; set; } = NodeGraphView.DefaultNodeWidth;
@@ -352,24 +374,27 @@ public class NodeGraphView : Drawable
 	/// <summary>Default node width in graph units.</summary>
 	public const float DefaultNodeWidth = 180f;
 
-	private const float HeaderHeight    = 28f;
-	private const float SocketRowHeight = 24f;
-	private const float SocketRadius    = 7f;
-	private const float SocketHitRadius = 12f;
-	private const float NodePadding     = 10f;
-	private const float MinZoom         = 0.15f;
-	private const float MaxZoom         = 4f;
-	private const float GridSize        = 20f;
+	private const float HeaderHeight         = 28f;
+	private const float SocketRowHeight      = 24f;
+	private const float SocketRadius         = 7f;
+	private const float SocketHitRadius      = 12f;
+	private const float ControlFlowHalfSize  = 7f;    // half the side length of the exec triangle
+	private const float NodePadding          = 10f;
+	private const float HiddenLabelRowHeight = 18f;
+	private const float MinZoom              = 0.15f;
+	private const float MaxZoom              = 4f;
+	private const float GridSize             = 20f;
 
 	// ── Display colors ──────────────────────────────────────────────────────────
-	private static readonly Color s_canvasColor       = Color.FromRgb(0x1E1E2E);
-	private static readonly Color s_gridColor         = Color.FromArgb(50, 50, 70, 255);
-	private static readonly Color s_nodeBodyColor     = Color.FromRgb(0x2A2A3E);
-	private static readonly Color s_nodeBorderColor   = Color.FromRgb(0x3A3A55);
-	private static readonly Color s_nodeSelColor      = Colors.White;
-	private static readonly Color s_headerTextColor   = Colors.White;
-	private static readonly Color s_socketLabelColor  = Color.FromRgb(0xCCCCCC);
-	private static readonly Color s_valueColor        = Color.FromRgb(0xF5A623);
+	private static readonly Color s_canvasColor        = Color.FromRgb(0x1E1E2E);
+	private static readonly Color s_gridColor          = Color.FromArgb(50, 50, 70, 255);
+	private static readonly Color s_nodeBodyColor      = Color.FromRgb(0x2A2A3E);
+	private static readonly Color s_nodeBorderColor    = Color.FromRgb(0x3A3A55);
+	private static readonly Color s_nodeSelColor       = Colors.White;
+	private static readonly Color s_headerTextColor    = Colors.White;
+	private static readonly Color s_socketLabelColor   = Color.FromRgb(0xCCCCCC);
+	private static readonly Color s_valueColor         = Color.FromRgb(0xF5A623);
+	private static readonly Color s_hiddenLabelColor   = Color.FromRgb(0x777788);
 	private static readonly Color s_defaultHeaderColor = Color.FromRgb(0x3D3D6B);
 
 	// ── State ───────────────────────────────────────────────────────────────────
@@ -436,6 +461,17 @@ public class NodeGraphView : Drawable
 	/// <summary>Raised after a connection is deleted via user interaction.</summary>
 	public event EventHandler<NodeConnectionEventArgs> ConnectionDeleted;
 
+	/// <summary>
+	/// Re-computes the layout for <paramref name="node"/> and redraws the canvas.
+	/// Call this after toggling <see cref="NodeSocket.IsPinned"/> on any of the node's sockets
+	/// so that the canvas immediately reflects the change.
+	/// </summary>
+	public void InvalidateNode(NodeItem node)
+	{
+		if (node != null) LayoutNode(node);
+		Invalidate();
+	}
+
 	// ── Construction ────────────────────────────────────────────────────────────
 
 	/// <summary>Initializes a new <see cref="NodeGraphView"/>.</summary>
@@ -484,8 +520,11 @@ public class NodeGraphView : Drawable
 
 	internal void LayoutNode(NodeItem node)
 	{
-		int rows = Math.Max(1, Math.Max(node.Inputs.Count, node.Outputs.Count));
-		node.ComputedHeight = HeaderHeight + rows * SocketRowHeight + NodePadding * 2;
+		int pinnedIn  = node.Inputs.Count(s => s.IsPinned);
+		int pinnedOut = node.Outputs.Count(s => s.IsPinned);
+		int rows      = Math.Max(1, Math.Max(pinnedIn, pinnedOut));
+		float hiddenExtra = node.HiddenSocketCount > 0 ? HiddenLabelRowHeight : 0f;
+		node.ComputedHeight = HeaderHeight + rows * SocketRowHeight + NodePadding * 2 + hiddenExtra;
 	}
 
 	// ── Coordinate transforms ───────────────────────────────────────────────────
@@ -508,14 +547,18 @@ public class NodeGraphView : Drawable
 		float bodyY = node.Position.Y + HeaderHeight + NodePadding;
 		if (socket.Direction == NodeSocketDirection.Input)
 		{
-			int idx = node.Inputs.IndexOf(socket);
+			var pinned = node.Inputs.Where(s => s.IsPinned).ToList();
+			int idx = pinned.IndexOf(socket);
+			if (idx < 0) idx = 0; // unpinned (e.g. pending connection drag) — place at top
 			return new PointF(
 				node.Position.X,
 				bodyY + idx * SocketRowHeight + SocketRowHeight / 2f);
 		}
 		else
 		{
-			int idx = node.Outputs.IndexOf(socket);
+			var pinned = node.Outputs.Where(s => s.IsPinned).ToList();
+			int idx = pinned.IndexOf(socket);
+			if (idx < 0) idx = 0;
 			return new PointF(
 				node.Position.X + node.ComputedWidth,
 				bodyY + idx * SocketRowHeight + SocketRowHeight / 2f);
@@ -544,7 +587,7 @@ public class NodeGraphView : Drawable
 		float hitR2 = (SocketHitRadius / _zoom) * (SocketHitRadius / _zoom);
 		foreach (var node in _graph.Nodes)
 		{
-			foreach (var s in node.Inputs.Concat<NodeSocket>(node.Outputs))
+			foreach (var s in node.Inputs.Concat<NodeSocket>(node.Outputs).Where(s => s.IsPinned))
 			{
 				var c = GetSocketCenter(s);
 				float dx = c.X - gp.X, dy = c.Y - gp.Y;
@@ -683,61 +726,123 @@ public class NodeGraphView : Drawable
 		using (var pen = new Pen(selected ? s_nodeSelColor : s_nodeBorderColor, selected ? 2f : 1f))
 			g.DrawRectangle(pen, x, y, w, h);
 
-		// Sockets
-		for (int i = 0; i < node.Inputs.Count;  i++) DrawSocket(g, node.Inputs[i]);
-		for (int i = 0; i < node.Outputs.Count; i++) DrawSocket(g, node.Outputs[i]);
+		// Pinned sockets only
+		foreach (var s in node.Inputs.Where(sock => sock.IsPinned))  DrawSocket(g, s);
+		foreach (var s in node.Outputs.Where(sock => sock.IsPinned)) DrawSocket(g, s);
+
+		// "N more…" indicator when some sockets are hidden
+		int hidden = node.HiddenSocketCount;
+		if (hidden > 0)
+		{
+			float indY = y + h - HiddenLabelRowHeight + (HiddenLabelRowHeight - _labelFont.LineHeight) / 2f;
+			g.DrawText(_labelFont, s_hiddenLabelColor, x + NodePadding, indY,
+				$"+ {hidden} more… (see Properties)");
+		}
 	}
 
 	private void DrawSocket(Graphics g, NodeSocket socket)
 	{
-		var    center   = GetSocketCenter(socket);
-		var    sockColor = socket.SocketType.Color;
-		bool   isOutput  = socket.Direction == NodeSocketDirection.Output;
-		bool   hovered   = socket == _hoveredSocket;
-		float  r = hovered ? SocketRadius + 2f : SocketRadius;
-		var    circleRect = new RectangleF(center.X - r, center.Y - r, r * 2f, r * 2f);
+		var   center    = GetSocketCenter(socket);
+		var   sockColor = socket.SocketType.Color;
+		bool  isOutput  = socket.Direction == NodeSocketDirection.Output;
+		bool  isControlFlow = IsControlFlowSocket(socket);
+		bool  hovered   = socket == _hoveredSocket;
 
-		// Filled circle if connected, outlined if not
-		if (socket.IsConnected)
+		float outerR; // effective radius/half-size for label offset
+
+		if (isControlFlow)
 		{
-			g.FillEllipse(sockColor, circleRect);
+			outerR = ControlFlowHalfSize + (hovered ? 2f : 0f);
+			DrawControlFlowTriangle(g, center, sockColor, socket.IsConnected, hovered);
 		}
 		else
 		{
-			g.FillEllipse(s_nodeBodyColor, circleRect);
-			using (var pen = new Pen(sockColor, 2f))
-				g.DrawEllipse(pen, circleRect);
+			float r = hovered ? SocketRadius + 2f : SocketRadius;
+			outerR = r;
+			var circleRect = new RectangleF(center.X - r, center.Y - r, r * 2f, r * 2f);
+			if (socket.IsConnected)
+			{
+				g.FillEllipse(sockColor, circleRect);
+			}
+			else
+			{
+				g.FillEllipse(s_nodeBodyColor, circleRect);
+				using (var pen = new Pen(sockColor, 2f))
+					g.DrawEllipse(pen, circleRect);
+			}
 		}
 
 		// Socket label
 		float labelY = center.Y - _labelFont.LineHeight / 2f;
 		if (isOutput)
 		{
-			float textW = g.MeasureString(_labelFont, socket.Name).Width;
-			float labelX = center.X - r - NodePadding / 2f - textW;
+			float textW  = g.MeasureString(_labelFont, socket.Name).Width;
+			float labelX = center.X - outerR - NodePadding / 2f - textW;
 			g.DrawText(_labelFont, s_socketLabelColor, labelX, labelY, socket.Name);
 		}
 		else
 		{
-			float labelX = center.X + r + NodePadding / 2f;
+			float labelX = center.X + outerR + NodePadding / 2f;
 			g.DrawText(_labelFont, s_socketLabelColor, labelX, labelY, socket.Name);
 
 			// Default value badge for unconnected inputs
 			if (!socket.IsConnected && socket.Value != null)
 			{
-				float textW = g.MeasureString(_labelFont, socket.Name).Width;
-				float valX  = labelX + textW + 4f;
-				g.DrawText(_labelFont, s_valueColor, valX, labelY, socket.Value);
+				float nameW = g.MeasureString(_labelFont, socket.Name).Width;
+				g.DrawText(_labelFont, s_valueColor, labelX + nameW + 4f, labelY, socket.Value);
 			}
+		}
+	}
+
+	/// <summary>Draws a right-pointing triangle for a ControlFlow socket.</summary>
+	private void DrawControlFlowTriangle(Graphics g, PointF center, Color color, bool connected, bool hovered)
+	{
+		float hs = ControlFlowHalfSize + (hovered ? 2f : 0f);
+		var tri = new[]
+		{
+			new PointF(center.X - hs, center.Y - hs),
+			new PointF(center.X + hs, center.Y),
+			new PointF(center.X - hs, center.Y + hs),
+		};
+
+		if (connected)
+		{
+			g.FillPolygon(color, tri);
+		}
+		else
+		{
+			g.FillPolygon(s_nodeBodyColor, tri);
+			using (var pen = new Pen(color, 2f))
+				g.DrawPolygon(pen, tri);
 		}
 	}
 
 	private void DrawConnection(Graphics g, NodeConnection conn, bool hovered)
 	{
-		var src   = GetSocketCenter(conn.Source);
-		var tgt   = GetSocketCenter(conn.Target);
-		var color = BlendColors(conn.Source.SocketType.Color, conn.Target.SocketType.Color);
-		DrawBezier(g, src, tgt, srcIsOutput: true, color: color, width: hovered ? 3f : 2f, dashed: false);
+		// Skip connections where either endpoint is unpinned (hidden from canvas)
+		if (!conn.Source.IsPinned || !conn.Target.IsPinned) return;
+
+		var src = GetSocketCenter(conn.Source);
+		var tgt = GetSocketCenter(conn.Target);
+
+		if (IsControlFlowSocket(conn.Source) || IsControlFlowSocket(conn.Target))
+		{
+			// ControlFlow: light-grey, slightly wider, no glow
+			using (var pen = new Pen(Color.FromRgb(0xDDDDDD), hovered ? 3f : 2.5f))
+			{
+				var (c1, c2) = BezierControlPoints(src, tgt, srcIsOutput: true);
+				using (var path = new GraphicsPath())
+				{
+					path.AddBezier(src, c1, c2, tgt);
+					g.DrawPath(pen, path);
+				}
+			}
+		}
+		else
+		{
+			var color = BlendColors(conn.Source.SocketType.Color, conn.Target.SocketType.Color);
+			DrawBezier(g, src, tgt, srcIsOutput: true, color: color, width: hovered ? 3f : 2f, dashed: false);
+		}
 	}
 
 	private void DrawPendingConnection(Graphics g)
@@ -773,6 +878,13 @@ public class NodeGraphView : Drawable
 
 	private static Color BlendColors(Color a, Color b) =>
 		new Color((a.R + b.R) / 2f, (a.G + b.G) / 2f, (a.B + b.B) / 2f);
+
+	/// <summary>
+	/// Returns <c>true</c> when <paramref name="socket"/> carries control-flow (execution order) data,
+	/// identified by the socket type name "ControlFlow" (case-insensitive).
+	/// </summary>
+	private static bool IsControlFlowSocket(NodeSocket socket) =>
+		string.Equals(socket.SocketType.Name, "ControlFlow", StringComparison.OrdinalIgnoreCase);
 
 	// ── Mouse events ─────────────────────────────────────────────────────────────
 
