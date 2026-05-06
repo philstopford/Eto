@@ -25,12 +25,14 @@ namespace Eto.Test.Sections.Controls
 		NodeGraph          _graph;
 		bool               _framed;
 		NodePropertyPanel  _propertyPanel;
+		NodeListPanel      _nodeListPanel;
 
 		public NodeGraphViewSection()
 		{
 			_graphView     = new NodeGraphView();
 			_graph         = CreateExampleGraph();
 			_propertyPanel = new NodePropertyPanel(_graphView);
+			_nodeListPanel = new NodeListPanel(_graphView);
 
 			_graphView.Graph = _graph;
 
@@ -48,7 +50,8 @@ namespace Eto.Test.Sections.Controls
 			_graphView.ConnectionCreated += (s, e) => Log.Write(null, $"Connection created: {e.Connection.Source.Name} → {e.Connection.Target.Name}");
 			_graphView.ConnectionDeleted += (s, e) => Log.Write(null, $"Connection deleted: {e.Connection.Source.Name} → {e.Connection.Target.Name}");
 
-			var splitter = new Splitter
+			// [ NodeList | [ PropertyPanel | GraphView ] ]
+			var innerSplitter = new Splitter
 			{
 				Orientation = Orientation.Horizontal,
 				Panel1      = _propertyPanel,
@@ -56,10 +59,18 @@ namespace Eto.Test.Sections.Controls
 				Position    = 240,
 			};
 
+			var outerSplitter = new Splitter
+			{
+				Orientation = Orientation.Horizontal,
+				Panel1      = _nodeListPanel,
+				Panel2      = innerSplitter,
+				Position    = 150,
+			};
+
 			var layout = new DynamicLayout { DefaultSpacing = new Size(0, 0) };
 			layout.Add(BuildToolbar());
 			layout.Add(BuildHelpBar());
-			layout.Add(splitter, yscale: true);
+			layout.Add(outerSplitter, yscale: true);
 
 			Content = layout;
 		}

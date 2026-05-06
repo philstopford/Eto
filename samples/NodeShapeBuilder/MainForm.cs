@@ -28,6 +28,7 @@ public class MainForm : Form
 	bool             _framed;
 	ShapePreviewPanel _previewPanel;
 	NodePropertyPanel _propPanel;
+	NodeListPanel    _nodeListPanel;
 	Label            _statusLabel;
 
 	public MainForm()
@@ -36,13 +37,14 @@ public class MainForm : Form
 		ClientSize   = new Size(1200, 700);
 		Resizable    = true;
 
-		_graphView    = new NodeGraphView();
-		_previewPanel = new ShapePreviewPanel
+		_graphView     = new NodeGraphView();
+		_previewPanel  = new ShapePreviewPanel
 		{
 			BackgroundColor = Color.FromRgb(0x1A1A2A),
 		};
-		_propPanel  = new NodePropertyPanel(_graphView, RefreshPreview);
-		_statusLabel = new Label
+		_propPanel     = new NodePropertyPanel(_graphView, RefreshPreview);
+		_nodeListPanel = new NodeListPanel(_graphView);
+		_statusLabel   = new Label
 		{
 			Text      = "Ready",
 			TextColor = Color.FromRgb(0x888899),
@@ -75,7 +77,7 @@ public class MainForm : Form
 
 		// ── Layout ───────────────────────────────────────────────────────────────
 
-		var innerSplitter = new Splitter
+		var graphAndPreview = new Splitter
 		{
 			Orientation = Orientation.Horizontal,
 			Panel1      = _graphView,
@@ -84,12 +86,21 @@ public class MainForm : Form
 			Panel2MinimumSize = 240,
 		};
 
-		var outerSplitter = new Splitter
+		// [ NodeList | [ PropertyPanel | [ GraphView | Preview ] ] ]
+		var propAndGraph = new Splitter
 		{
 			Orientation = Orientation.Horizontal,
 			Panel1      = _propPanel,
-			Panel2      = innerSplitter,
+			Panel2      = graphAndPreview,
 			Position    = 200,
+		};
+
+		var outerSplitter = new Splitter
+		{
+			Orientation = Orientation.Horizontal,
+			Panel1      = _nodeListPanel,
+			Panel2      = propAndGraph,
+			Position    = 150,
 		};
 
 		var mainLayout = new DynamicLayout { DefaultSpacing = new Size(0, 0) };
@@ -102,7 +113,7 @@ public class MainForm : Form
 		// Set the right-panel initial size once form is shown
 		Shown += (_, _) =>
 		{
-			innerSplitter.Position = Math.Max(100, (innerSplitter.Width - 240));
+			graphAndPreview.Position = Math.Max(100, (graphAndPreview.Width - 240));
 		};
 
 		RefreshPreview();

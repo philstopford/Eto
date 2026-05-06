@@ -432,8 +432,12 @@ public class NodeGraphView : Drawable
 			SubscribeGraph();
 			LayoutAllNodes();
 			Invalidate();
+			GraphChanged?.Invoke(this, EventArgs.Empty);
 		}
 	}
+
+	/// <summary>Raised when the <see cref="Graph"/> property is assigned a new value.</summary>
+	public event EventHandler<EventArgs> GraphChanged;
 
 	/// <summary>Gets or sets the current zoom level (clamped to [0.15, 4.0]).</summary>
 	public float Zoom
@@ -1191,6 +1195,29 @@ public class NodeGraphView : Drawable
 		Invalidate();
 	}
 
+	/// <summary>
+	/// Selects <paramref name="node"/> and pans the viewport so the node is centred in the
+	/// visible area.  The zoom level is not changed.
+	/// </summary>
+	/// <remarks>
+	/// If the node is not part of the current graph this method is a no-op.
+	/// Raises <see cref="SelectionChanged"/> after updating the selection.
+	/// </remarks>
+	public void SelectAndCenter(NodeItem node)
+	{
+		if (node == null || _graph == null || !_graph.Nodes.Contains(node)) return;
+
+		_selection.Clear();
+		_selection.Add(node);
+		SelectionChanged?.Invoke(this, new NodeItemEventArgs(node));
+
+		// Pan so the node centre lands on the viewport centre
+		float cx = node.Position.X + node.ComputedWidth  / 2f;
+		float cy = node.Position.Y + node.ComputedHeight / 2f;
+		_offset = new PointF(Width / 2f - cx * _zoom, Height / 2f - cy * _zoom);
+		Invalidate();
+	}
+
 	// ── Cleanup ───────────────────────────────────────────────────────────────────
 
 	/// <inheritdoc/>
@@ -1201,6 +1228,192 @@ public class NodeGraphView : Drawable
 			_headerFont?.Dispose();
 			_labelFont?.Dispose();
 			UnsubscribeGraph();
+		}
+		base.Dispose(disposing);
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────
+//  NodeListPanel
+// ─────────────────────────────────────────────────────────────────────────────────
+
+/// <summary>
+/// A side-panel that lists every node in a <see cref="NodeGraphView"/>'s graph.
+/// Clicking a node in the list selects it on the canvas and centres the viewport on
+/// it, making it easy to navigate large graphs where nodes may be out of view.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Place this panel to the left of a <see cref="NodeGraphView"/> using a
+/// <see cref="Splitter"/>.  The list updates automatically when nodes are added or
+/// removed and when the <see cref="NodeGraphView.Graph"/> property is replaced.
+/// </para>
+/// <para>
+/// The selection is kept in sync in both directions:
+/// selecting a node on the canvas highlights it in the list, and clicking a row in
+/// the list selects and centres the node on the canvas.
+/// </para>
+/// </remarks>
+public class NodeListPanel : Panel
+{
+	// ── Colours (match the NodeGraphView dark theme) ─────────────────────────────
+	private static readonly Color s_bg     = Color.FromRgb(0x161622);
+	private static readonly Color s_header = Color.FromRgb(0x7777AA);
+
+	// ── Inner list item ──────────────────────────────────────────────────────────
+
+	/// <summary>Wraps a <see cref="NodeItem"/> so it can be stored directly in the ListBox.</summary>
+	private sealed class NodeListItem : IListItem
+	{
+		public NodeItem Node { get; }
+		public string   Text { get => Node.Title; set { } }
+		public string   Key  => null;
+
+		public NodeListItem(NodeItem node) => Node = node;
+	}
+
+	// ── State ────────────────────────────────────────────────────────────────────
+	private readonly NodeGraphView _view;
+	private readonly ListBox       _listBox;
+	private NodeGraph              _subscribedGraph;
+	private bool                   _suppressListSelection;
+
+	/// <summary>
+	/// Initializes a new <see cref="NodeListPanel"/> bound to <paramref name="view"/>.
+	/// </summary>
+	/// <param name="view">The <see cref="NodeGraphView"/> to observe and control.</param>
+	public NodeListPanel(NodeGraphView view)
+	{
+		_view = view ?? throw new ArgumentNullException(nameof(view));
+		BackgroundColor = s_bg;
+		MinimumSize     = new Size(120, 0);
+
+		_listBox = new ListBox { BackgroundColor = s_bg };
+		_listBox.SelectedIndexChanged += OnListSelectionChanged;
+
+		var headerLabel = new Label
+		{
+			Text              = "NODES",
+			Font              = new Font(SystemFont.Default, 9f),
+			TextColor         = s_header,
+			VerticalAlignment = VerticalAlignment.Center,
+		};
+
+		var layout = new DynamicLayout
+		{
+			Padding         = new Padding(6, 6),
+			DefaultSpacing  = new Size(2, 4),
+			BackgroundColor = s_bg,
+		};
+		layout.Add(headerLabel);
+		layout.Add(_listBox, yscale: true);
+
+		Content = layout;
+
+		_view.GraphChanged     += OnViewGraphChanged;
+		_view.SelectionChanged += OnViewSelectionChanged;
+
+		RefreshGraph();
+	}
+
+	// ── Private helpers ──────────────────────────────────────────────────────────
+
+	private void RefreshGraph()
+	{
+		if (_subscribedGraph != null)
+		{
+			_subscribedGraph.NodeAdded   -= OnNodeAddedOrRemoved;
+			_subscribedGraph.NodeRemoved -= OnNodeAddedOrRemoved;
+		}
+
+		_subscribedGraph = _view.Graph;
+
+		if (_subscribedGraph != null)
+		{
+			_subscribedGraph.NodeAdded   += OnNodeAddedOrRemoved;
+			_subscribedGraph.NodeRemoved += OnNodeAddedOrRemoved;
+		}
+
+		PopulateList();
+	}
+
+	private void PopulateList()
+	{
+		_suppressListSelection = true;
+		try
+		{
+			_listBox.Items.Clear();
+			if (_view.Graph != null)
+				foreach (var node in _view.Graph.Nodes)
+					_listBox.Items.Add(new NodeListItem(node));
+
+			// Highlight the currently selected canvas node (if any)
+			SyncSelectionCore();
+		}
+		finally { _suppressListSelection = false; }
+	}
+
+	/// <summary>
+	/// Finds the list row whose wrapped <see cref="NodeItem"/> matches the canvas selection
+	/// and sets the list selection accordingly.
+	/// Uses reference equality so it is unaffected by changes in collection order.
+	/// </summary>
+	private void SyncSelectionCore()
+	{
+		var selected = _view.SelectedNodes.FirstOrDefault();
+		int idx = -1;
+		if (selected != null)
+		{
+			for (int i = 0; i < _listBox.Items.Count; i++)
+			{
+				if (_listBox.Items[i] is NodeListItem nli && ReferenceEquals(nli.Node, selected))
+				{
+					idx = i;
+					break;
+				}
+			}
+		}
+		_listBox.SelectedIndex = idx;
+	}
+
+	private void SyncSelection()
+	{
+		if (_suppressListSelection) return;
+		_suppressListSelection = true;
+		try   { SyncSelectionCore(); }
+		finally { _suppressListSelection = false; }
+	}
+
+	// ── Event handlers ───────────────────────────────────────────────────────────
+
+	private void OnViewGraphChanged(object sender, EventArgs e)            => RefreshGraph();
+	private void OnNodeAddedOrRemoved(object sender, NodeItemEventArgs e)  => PopulateList();
+	private void OnViewSelectionChanged(object sender, NodeItemEventArgs e) => SyncSelection();
+
+	private void OnListSelectionChanged(object sender, EventArgs e)
+	{
+		if (_suppressListSelection) return;
+
+		int idx = _listBox.SelectedIndex;
+		if (idx < 0 || idx >= _listBox.Items.Count) return;
+
+		if (_listBox.Items[idx] is NodeListItem nli)
+			_view.SelectAndCenter(nli.Node);
+	}
+
+	/// <inheritdoc/>
+	protected override void Dispose(bool disposing)
+	{
+		if (disposing)
+		{
+			_view.GraphChanged     -= OnViewGraphChanged;
+			_view.SelectionChanged -= OnViewSelectionChanged;
+
+			if (_subscribedGraph != null)
+			{
+				_subscribedGraph.NodeAdded   -= OnNodeAddedOrRemoved;
+				_subscribedGraph.NodeRemoved -= OnNodeAddedOrRemoved;
+			}
 		}
 		base.Dispose(disposing);
 	}

@@ -32,12 +32,14 @@ namespace Eto.Test.Sections.Controls
 		NodeGraph          _graph;
 		bool               _framed;
 		CalcPropertyPanel  _propPanel;
+		NodeListPanel      _nodeListPanel;
 		Label              _resultLabel;
 
 		public NodeCalculatorSection()
 		{
-			_graphView = new NodeGraphView();
-			_propPanel = new CalcPropertyPanel(_graphView, OnValueChanged);
+			_graphView     = new NodeGraphView();
+			_propPanel     = new CalcPropertyPanel(_graphView, OnValueChanged);
+			_nodeListPanel = new NodeListPanel(_graphView);
 			_resultLabel = new Label
 			{
 				Text      = "No Display node",
@@ -61,10 +63,11 @@ namespace Eto.Test.Sections.Controls
 			_graphView.ConnectionCreated += (_, _) => ReEvaluate();
 			_graphView.ConnectionDeleted += (_, _) => ReEvaluate();
 
-			var toolbar = BuildToolbar();
+			var toolbar   = BuildToolbar();
 			var resultBar = BuildResultBar();
 
-			var splitter = new Splitter
+			// [ NodeList | [ PropertyPanel | GraphView ] ]
+			var innerSplitter = new Splitter
 			{
 				Orientation = Orientation.Horizontal,
 				Panel1      = _propPanel,
@@ -72,9 +75,17 @@ namespace Eto.Test.Sections.Controls
 				Position    = 240,
 			};
 
+			var outerSplitter = new Splitter
+			{
+				Orientation = Orientation.Horizontal,
+				Panel1      = _nodeListPanel,
+				Panel2      = innerSplitter,
+				Position    = 150,
+			};
+
 			var layout = new DynamicLayout { DefaultSpacing = new Size(0, 0) };
 			layout.Add(toolbar);
-			layout.Add(splitter, yscale: true);
+			layout.Add(outerSplitter, yscale: true);
 			layout.Add(resultBar);
 			Content = layout;
 
