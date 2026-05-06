@@ -217,9 +217,22 @@ namespace Eto.GtkSharp.Forms.Controls
 			// Place above the parent wl_surface so the Vulkan content is visible.
 			WaylandGlobals.wl_subsurface_place_above(_wlSubsurface, parentWlSurface);
 
+			// Inform the compositor of the pixel density.  On HiDPI displays (GTK
+			// scale ≥ 2) Vulkan will render at physical-pixel resolution; without
+			// this hint the compositor would interpret the oversized buffer as a
+			// 1:1 buffer, leaving part of the subsurface area uncovered (black).
+			int backingScale = Control.ScaleFactor; // integer; 1 on standard-DPI, 2 on HiDPI
+			if (backingScale > 1)
+				WaylandGlobals.wl_surface_set_buffer_scale(_wlSurface, backingScale);
+
 			// Set initial position and schedule a parent commit via GTK.
 			UpdateSubsurfacePosition();
 			topLevel.QueueDraw();
+
+			// Flush all queued protocol messages now so that the compositor receives
+			// set_desync / place_above / set_position / set_buffer_scale before
+			// Veldrid blocks the main thread for ~300 ms creating the Vulkan device.
+			WaylandGlobals.Flush(_wlDisplay);
 
 			_surfaceInfo = new WaylandSurfaceInfo(
 				_wlDisplay, _wlSurface, FindPreferredDrmRenderNode());
@@ -312,10 +325,12 @@ namespace Eto.GtkSharp.Forms.Controls
 
 			if (Control.TranslateCoordinates(topLevel, 0, 0, out int x, out int y))
 			{
+				// wl_subsurface.set_position takes logical-pixel coordinates; the position
+				// is applied to the parent's next commit (triggered by GTK rendering).
 				WaylandGlobals.wl_subsurface_set_position(_wlSubsurface, x, y);
-				// The position is applied on the parent's next commit (triggered by GTK rendering).
-				// Committing our own surface here makes Vulkan presentation work immediately.
-				WaylandGlobals.wl_surface_commit(_wlSurface);
+				// Do NOT commit _wlSurface here: an empty commit with no pending buffer or
+				// damage sent in desync mode causes some compositors (e.g. Mutter) to
+				// treat the surface as if it has no content, clearing the last Vulkan frame.
 			}
 		}
 

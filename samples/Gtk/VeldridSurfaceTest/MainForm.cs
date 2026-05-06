@@ -297,7 +297,8 @@ public class MainForm : Form
             return;
         }
 
-        Log($"SurfaceCreated  type={info.SurfaceType}  size={surface.Size}");
+        int scale = (int)surface.BackingScaleFactor;
+        Log($"SurfaceCreated  type={info.SurfaceType}  size={surface.Size}  scale={scale}");
         _surfaceInfo = info;
 
         InitializeVeldrid(info, surface);
@@ -314,8 +315,13 @@ public class MainForm : Form
     void InitializeVeldrid(IVulkanSurfaceInfo info, VulkanSurface surface)
     {
         bool isWayland = info.SurfaceType == VulkanSurfaceType.Wayland;
-        int  w = Math.Max(1, surface.Width);
-        int  h = Math.Max(1, surface.Height);
+        // Use physical-pixel dimensions for the swapchain.  On HiDPI displays
+        // (scale ≥ 2) the Vulkan buffer must cover the full physical area; the
+        // wl_surface_set_buffer_scale hint in VulkanSurfaceHandler already tells
+        // the compositor to interpret the buffer at that scale.
+        int scale = (int)surface.BackingScaleFactor;
+        int w = Math.Max(1, surface.Width  * scale);
+        int h = Math.Max(1, surface.Height * scale);
 
         // ── Shared GraphicsDeviceOptions ──────────────────────────────────────
         // D24_UNorm_S8_UInt is supported on all backends and gives a 24-bit
@@ -350,9 +356,7 @@ public class MainForm : Form
 
         try
         {
-            _renderer = new VeldridRenderer(_gd,
-                (uint)Math.Max(1, surface.Width),
-                (uint)Math.Max(1, surface.Height));
+            _renderer = new VeldridRenderer(_gd, (uint)w, (uint)h);
             _lastRender = DateTime.Now;
 
             _lblBackend.Text = _gd.BackendType.ToString();
@@ -503,8 +507,10 @@ public class MainForm : Form
     {
         if (_renderer == null || _gd == null) return;
 
-        int w = Math.Max(1, surface.Width);
-        int h = Math.Max(1, surface.Height);
+        // Use physical-pixel dimensions, matching the swapchain created in InitializeVeldrid.
+        int scale = (int)surface.BackingScaleFactor;
+        int w = Math.Max(1, surface.Width  * scale);
+        int h = Math.Max(1, surface.Height * scale);
 
         // For Wayland EGL: the wl_egl_window must be resized before the frame
         // so the compositor knows the new dimensions before we swap.

@@ -25,6 +25,10 @@ namespace Eto.GtkSharp
 		[System.Runtime.InteropServices.DllImport(libwayland, CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]
 		static extern int wl_display_roundtrip(IntPtr display);
 
+		/// <summary>Flushes all pending outgoing Wayland protocol messages to the compositor socket.</summary>
+		[System.Runtime.InteropServices.DllImport(libwayland, CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]
+		static extern int wl_display_flush(IntPtr display);
+
 		[System.Runtime.InteropServices.DllImport(libwayland, CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]
 		static extern int wl_proxy_add_listener(IntPtr proxy, IntPtr implementation, IntPtr data);
 
@@ -75,6 +79,7 @@ namespace Eto.GtkSharp
 		const uint WL_SUBSURFACE_SET_DESYNC       = 5;
 		const uint WL_SURFACE_DESTROY             = 0;
 		const uint WL_SURFACE_COMMIT              = 6;
+		const uint WL_SURFACE_SET_BUFFER_SCALE    = 8;  // requires wl_compositor version 3+
 
 		// ── registry-listener infrastructure ─────────────────────────────────────
 
@@ -280,12 +285,38 @@ namespace Eto.GtkSharp
 			wl_proxy_marshal_array(surface, WL_SURFACE_COMMIT, (WlArgument*)null);
 		}
 
+		/// <summary>
+		/// Sets the buffer scale hint for a <c>wl_surface</c> (requires wl_compositor ≥ v3).
+		/// Call before the first buffer commit so the compositor knows the pixel density.
+		/// </summary>
+		/// <param name="surface">The <c>wl_surface*</c> to configure.</param>
+		/// <param name="scale">Integer scale factor (1 = normal DPI, 2 = HiDPI 2×, etc.).</param>
+		internal static void wl_surface_set_buffer_scale(IntPtr surface, int scale)
+		{
+			// Protocol: wl_surface.set_buffer_scale (opcode 8) — int32
+			var args = stackalloc WlArgument[1];
+			args[0].i = scale;
+			wl_proxy_marshal_array(surface, WL_SURFACE_SET_BUFFER_SCALE, args);
+		}
+
 		/// <summary>Destroys the <c>wl_surface</c> object.</summary>
 		internal static void wl_surface_destroy(IntPtr surface)
 		{
 			// Protocol: wl_surface.destroy (opcode 0, destructor) — no args
 			wl_proxy_marshal_array(surface, WL_SURFACE_DESTROY, (WlArgument*)null);
 			wl_proxy_destroy(surface);
+		}
+
+		/// <summary>
+		/// Flushes all pending outgoing protocol messages to the compositor socket.
+		/// Call after a batch of protocol requests to ensure they are sent before
+		/// blocking operations (e.g. Vulkan device creation) that may delay the
+		/// main loop's next iteration.
+		/// </summary>
+		internal static void Flush(IntPtr wlDisplay)
+		{
+			if (wlDisplay != IntPtr.Zero)
+				wl_display_flush(wlDisplay);
 		}
 
 		// ── registry listener callbacks ───────────────────────────────────────────
