@@ -32,6 +32,7 @@ namespace Eto.GtkSharp.Forms.Controls
 		// ── shared ───────────────────────────────────────────────────────────────
 		bool _isWayland;
 		bool _surfaceAlive;
+		bool _renderQueued;      // coalesces Invalidate()-triggered renders
 		IVulkanSurfaceInfo _surfaceInfo;
 
 		// ── IHandler ─────────────────────────────────────────────────────────────
@@ -108,11 +109,28 @@ namespace Eto.GtkSharp.Forms.Controls
 		[GLib.ConnectBefore]
 		void HandleDrawn(object o, Gtk.DrawnArgs args)
 		{
-			// Fire the Render event so every Invalidate() call (e.g. from an animation
-			// timer) drives a new Veldrid frame.  We still suppress GTK's default painting
-			// because Vulkan / OpenGL owns the pixels — not Cairo.
-			if (_surfaceAlive)
-				Callback.OnRender(Widget, new VulkanRenderEventArgs());
+			// Defer GPU rendering to outside GTK's draw callback.  Calling
+			// SwapBuffers (Veldrid Vulkan / EGL) from inside a GTK Drawn handler
+			// triggers Wayland protocol functions (wl_surface_commit, etc.) while
+			// GTK itself is already inside a Wayland event dispatch loop — which
+			// is a re-entrancy violation in libwayland that prevents the window
+			// from appearing on screen.
+			//
+			// AsyncInvoke schedules the call for the next main-loop iteration,
+			// safely outside any draw or Wayland-event context.  The coalescing
+			// flag ensures at most one pending render per Invalidate() burst.
+			if (_surfaceAlive && !_renderQueued)
+			{
+				_renderQueued = true;
+				Application.Instance.AsyncInvoke(() =>
+				{
+					_renderQueued = false;
+					if (_surfaceAlive)
+						Callback.OnRender(Widget, new VulkanRenderEventArgs());
+				});
+			}
+
+			// Suppress GTK's default Cairo painting — GPU code owns the pixels.
 			args.RetVal = true;
 		}
 
@@ -127,8 +145,20 @@ namespace Eto.GtkSharp.Forms.Controls
 			if (_isWayland)
 				UpdateSubsurfacePosition();
 
-			if (_surfaceAlive)
-				Callback.OnRender(Widget, new VulkanRenderEventArgs());
+			// Defer rendering to outside GTK's layout/draw pass for the same reason
+			// as HandleDrawn: calling SwapBuffers from inside a GTK signal handler
+			// causes Wayland re-entrancy.  The coalescing flag prevents duplicate
+			// renders if a resize and a queued Invalidate() arrive in the same burst.
+			if (_surfaceAlive && !_renderQueued)
+			{
+				_renderQueued = true;
+				Application.Instance.AsyncInvoke(() =>
+				{
+					_renderQueued = false;
+					if (_surfaceAlive)
+						Callback.OnRender(Widget, new VulkanRenderEventArgs());
+				});
+			}
 		}
 
 		// ── surface lifecycle ─────────────────────────────────────────────────────
