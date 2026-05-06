@@ -343,7 +343,7 @@ namespace Eto.Test.Sections.Controls
 			// ── Data connections ─────────────────────────────────────────────────────
 			g.Connect(layerA.Outputs[1], sim.Inputs[1]);   // Layer A Geometry → Shape A
 			g.Connect(layerB.Outputs[1], sim.Inputs[2]);   // Layer B Geometry → Shape B
-			g.Connect(sim.Outputs[1],    pattern.Inputs[1]); // Results → Layout (demonstrates Any-compatible usage via Geometry here; in real use Results would be typed differently)
+			g.Connect(sim.Outputs[1],    pattern.Inputs[1]); // Results → Layout
 
 			// ── Control-flow connections ─────────────────────────────────────────────
 			// Layer A exec → Simulation exec (enforce Layer A is processed first)
@@ -395,7 +395,11 @@ namespace Eto.Test.Sections.Controls
 		/// <summary>Populates the panel for <paramref name="node"/>, or clears it when <c>null</c>.</summary>
 		public void Populate(NodeItem node)
 		{
-			if (node == null) { ShowPlaceholder(); return; }
+			if (node == null)
+			{
+				ShowPlaceholder();
+				return;
+			}
 
 			var scroll = new Scrollable
 			{
