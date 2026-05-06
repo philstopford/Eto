@@ -549,7 +549,7 @@ namespace Eto.GtkSharp
 
 			/// <summary>
 			/// Returns the <c>wl_surface*</c> backing the given <c>GdkWindow</c> on Wayland.
-			/// Only valid for top-level GDK windows; non-toplevel widgets share the toplevel's surface.
+			/// Only valid for top-level GDK windows.
 			/// </summary>
 			[DllImport(libgdk, CallingConvention = CallingConvention.Cdecl)]
 			public extern static IntPtr gdk_wayland_window_get_wl_surface(IntPtr window);
