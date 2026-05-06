@@ -120,6 +120,18 @@ public class VulkanSurface : Control
 		EventLookup.Register<VulkanSurface>(c => c.OnRender(null), RenderEvent);
 	}
 
+	/// <summary>
+	/// Initializes a new instance of the <see cref="VulkanSurface"/> class.
+	/// </summary>
+	public VulkanSurface()
+	{
+		// IHandler is [AutoInitialize(false)], so Widget..ctor() does NOT call Initialize()
+		// automatically. We must call Create() first (so the native widget is ready) and
+		// then Initialize() ourselves, exactly like Drawable does.
+		Handler.Create();
+		Initialize();
+	}
+
 	#region Events
 
 	/// <summary>Event identifier for handlers when attaching <see cref="SurfaceCreated"/>.</summary>
@@ -191,8 +203,12 @@ public class VulkanSurface : Control
 	/// <summary>
 	/// Handler interface that platform implementations must implement.
 	/// </summary>
+	[AutoInitialize(false)]
 	public new interface IHandler : Control.IHandler
 	{
+		/// <summary>Creates the underlying native widget. Called before <see cref="Widget.Initialize"/>.</summary>
+		void Create();
+
 		/// <summary>Gets the backing-scale factor for this surface.</summary>
 		float BackingScaleFactor { get; }
 
