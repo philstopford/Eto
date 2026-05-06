@@ -481,6 +481,19 @@ public class NodeGraphView : Drawable
 		base.BackgroundColor = s_canvasColor;
 		_headerFont = new Font(SystemFont.Bold, 9f);
 		_labelFont  = new Font(SystemFont.Default, 8f);
+
+		// NodeGraphView lives in the Eto core assembly, so EventLookup.HookupEvents
+		// never fires for it (it returns early for types in the Eto assembly).
+		// We must explicitly request the platform event plumbing for every On… method
+		// we override; otherwise the Gtk handler never adds the required event masks
+		// (PointerMotionMask, ButtonReleaseMask, ScrollMask, KeyPressMask, …) and the
+		// control silently ignores all mouse and keyboard input on Linux/GTK.
+		HandleEvent(Control.MouseDownEvent);
+		HandleEvent(Control.MouseUpEvent);
+		HandleEvent(Control.MouseMoveEvent);
+		HandleEvent(Control.MouseWheelEvent);
+		HandleEvent(Control.KeyDownEvent);
+		HandleEvent(Control.KeyUpEvent);
 	}
 
 	// ── Graph subscription ──────────────────────────────────────────────────────
