@@ -14,7 +14,7 @@ namespace Eto.Test.Sections.Controls
 	///   Abs      – |A|
 	///   Negate   – −A
 	///   Display  – Accepts one float and shows the computed value.  Only the
-	///              Display node's result is shown in the status bar; there can
+	///              Display node's result is shown in the result bar; there can
 	///              be multiple Display nodes in the graph.
 	/// <para/>
 	/// Controls are the same as NodeGraphView (drag sockets to connect, right-click to delete, etc.).

@@ -4,6 +4,8 @@ namespace NodeShapeBuilder;
 /// Side panel listing all sockets of the selected node grouped as INPUTS / OUTPUTS.
 /// Each socket row shows a pin checkbox (toggles <see cref="NodeSocket.IsPinned"/>),
 /// a type-colour swatch, the socket name, and—for unconnected inputs—the default value.
+/// Editing a parameter value calls <paramref name="onValueChanged"/> so the caller
+/// can re-evaluate and refresh the geometry preview.
 /// </summary>
 internal class NodePropertyPanel : Panel
 {
@@ -16,10 +18,12 @@ internal class NodePropertyPanel : Panel
 	// ── State ────────────────────────────────────────────────────────────────────
 
 	private readonly NodeGraphView _view;
+	private readonly Action        _onValueChanged;
 
-	public NodePropertyPanel(NodeGraphView view)
+	public NodePropertyPanel(NodeGraphView view, Action onValueChanged = null)
 	{
 		_view           = view;
+		_onValueChanged = onValueChanged;
 		BackgroundColor = s_bg;
 		ShowPlaceholder();
 	}
@@ -134,7 +138,11 @@ internal class NodePropertyPanel : Panel
 				Width     = 60,
 				TextColor = Color.FromRgb(0xF5A623),
 			};
-			tb.TextChanged += (_, _) => socket.Value = tb.Text;
+			tb.TextChanged += (_, _) =>
+			{
+				socket.Value = tb.Text;
+				_onValueChanged?.Invoke();
+			};
 			row.Items.Add(new StackLayoutItem(tb, VerticalAlignment.Center));
 		}
 

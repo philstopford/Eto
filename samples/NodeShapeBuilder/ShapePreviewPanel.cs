@@ -217,10 +217,11 @@ public class ShapePreviewPanel : Drawable
 
 	private static float PickGridStep(float scale, float targetPixels)
 	{
-		// Try to find a grid spacing such that the pixel distance is ~targetPixels
+		// Find the grid spacing (in geometry units) whose pixel distance is closest to targetPixels.
 		float raw = targetPixels / scale;
 		float[] nice = { 0.01f, 0.02f, 0.05f, 0.1f, 0.2f, 0.5f, 1f, 2f, 5f, 10f, 20f, 50f, 100f };
-		return nice.OrderBy(s => Math.Abs(s - raw)).FirstOrDefault(s => s > 0);
+		// Filter positive values first, then pick the one closest to the raw ideal.
+		return nice.Where(s => s > 0).OrderBy(s => Math.Abs(s - raw)).FirstOrDefault();
 	}
 
 	private void DrawCentreText(Graphics g, int vw, int vh, string text,

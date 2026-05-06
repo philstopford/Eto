@@ -41,7 +41,7 @@ public class MainForm : Form
 		{
 			BackgroundColor = Color.FromRgb(0x1A1A2A),
 		};
-		_propPanel  = new NodePropertyPanel(_graphView);
+		_propPanel  = new NodePropertyPanel(_graphView, RefreshPreview);
 		_statusLabel = new Label
 		{
 			Text      = "Ready",
@@ -215,9 +215,9 @@ public class MainForm : Form
 	{
 		var n = new NodeItem { Title = "Circle", HeaderColor = Color.FromRgb(0x006064) };
 		AddParamInput(n, "Radius",   "1.5");
-		AddParamInput(n, "Segments", "32").IsPinned = false;
-		AddParamInput(n, "Center X", "0").IsPinned  = false;
-		AddParamInput(n, "Center Y", "0").IsPinned  = false;
+		AddParamInput(n, "Segments", "32", pinned: false);
+		AddParamInput(n, "Center X", "0",  pinned: false);
+		AddParamInput(n, "Center Y", "0",  pinned: false);
 		n.AddOutput("Shape", s_geomType);
 		return n;
 	}
@@ -227,8 +227,8 @@ public class MainForm : Form
 		var n = new NodeItem { Title = "L-Shape", HeaderColor = Color.FromRgb(0x4A148C) };
 		AddParamInput(n, "Width",      "4");
 		AddParamInput(n, "Height",     "4");
-		AddParamInput(n, "Arm Width",  "2").IsPinned  = false;
-		AddParamInput(n, "Arm Height", "2").IsPinned  = false;
+		AddParamInput(n, "Arm Width",  "2", pinned: false);
+		AddParamInput(n, "Arm Height", "2", pinned: false);
 		n.AddOutput("Shape", s_geomType);
 		return n;
 	}
@@ -238,8 +238,8 @@ public class MainForm : Form
 		var n = new NodeItem { Title = "T-Shape", HeaderColor = Color.FromRgb(0x827717) };
 		AddParamInput(n, "Bar Width",   "4");
 		AddParamInput(n, "Bar Height",  "1");
-		AddParamInput(n, "Stem Width",  "1").IsPinned  = false;
-		AddParamInput(n, "Stem Height", "3").IsPinned  = false;
+		AddParamInput(n, "Stem Width",  "1", pinned: false);
+		AddParamInput(n, "Stem Height", "3", pinned: false);
 		n.AddOutput("Shape", s_geomType);
 		return n;
 	}
@@ -278,9 +278,10 @@ public class MainForm : Form
 		return n;
 	}
 
-	private static NodeSocket AddParamInput(NodeItem node, string name, string defaultVal)
+	private static NodeSocket AddParamInput(NodeItem node, string name, string defaultVal, bool pinned = true)
 	{
 		var s = node.AddInput(name, NodeSocketType.Float, defaultVal);
+		s.IsPinned = pinned;
 		return s;
 	}
 

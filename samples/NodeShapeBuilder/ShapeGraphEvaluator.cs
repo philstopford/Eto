@@ -168,6 +168,7 @@ public static class ShapeGraphEvaluator
 		var aGeom = GetInputGeometry(node, 0, visited);
 		var bGeom = GetInputGeometry(node, 1, visited);
 
+		// Short-circuit: A − ∅ = A; A ∩ ∅ = ∅; A ∪ ∅ = A
 		if (aGeom.Count == 0) return bGeom;
 		if (bGeom.Count == 0) return op == ClipType.Difference ? aGeom : new PathsD();
 
