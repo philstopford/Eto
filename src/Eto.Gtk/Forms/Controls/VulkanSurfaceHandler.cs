@@ -108,7 +108,11 @@ namespace Eto.GtkSharp.Forms.Controls
 		[GLib.ConnectBefore]
 		void HandleDrawn(object o, Gtk.DrawnArgs args)
 		{
-			// Suppress GTK's default painting so we don't get a flickering background.
+			// Fire the Render event so every Invalidate() call (e.g. from an animation
+			// timer) drives a new Veldrid frame.  We still suppress GTK's default painting
+			// because Vulkan / OpenGL owns the pixels — not Cairo.
+			if (_surfaceAlive)
+				Callback.OnRender(Widget, new VulkanRenderEventArgs());
 			args.RetVal = true;
 		}
 
