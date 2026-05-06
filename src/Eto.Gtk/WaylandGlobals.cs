@@ -154,11 +154,8 @@ namespace Eto.GtkSharp
 			{
 				// Pass a pointer to the listener struct on the stack.
 				// This is safe because wl_display_roundtrip returns before we leave this scope.
-				unsafe
-				{
-					RegistryListener* pListener = &listener;
-					wl_proxy_add_listener(registry, (IntPtr)pListener, IntPtr.Zero);
-				}
+				RegistryListener* pListener = &listener;
+				wl_proxy_add_listener(registry, (IntPtr)pListener, IntPtr.Zero);
 				wl_display_roundtrip(wlDisplay);
 			}
 			finally

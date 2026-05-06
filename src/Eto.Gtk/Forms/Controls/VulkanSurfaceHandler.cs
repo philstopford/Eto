@@ -45,6 +45,7 @@ namespace Eto.GtkSharp.Forms.Controls
 		// ── construction / teardown ───────────────────────────────────────────────
 
 		/// <summary>Creates the underlying <see cref="Gtk.DrawingArea"/> widget.</summary>
+		/// <remarks>Called by the Eto platform during handler construction.</remarks>
 		public void Create()
 		{
 			Control = new Gtk.DrawingArea();
