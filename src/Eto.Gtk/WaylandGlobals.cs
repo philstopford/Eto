@@ -167,6 +167,8 @@ namespace Eto.GtkSharp
 		static void OnGlobal(IntPtr data, IntPtr registry, uint name, string iface, uint version)
 		{
 			if (iface == "wl_compositor" && Compositor == IntPtr.Zero)
+				// wl_compositor version 4 introduced wl_surface.damage_buffer; cap there
+				// to avoid binding a version higher than we know how to use.
 				Compositor = wl_registry_bind(registry, name, _compositorIface, Math.Min(version, 4u));
 			else if (iface == "wl_subcompositor" && Subcompositor == IntPtr.Zero)
 				Subcompositor = wl_registry_bind(registry, name, _subcompositorIface, 1u);

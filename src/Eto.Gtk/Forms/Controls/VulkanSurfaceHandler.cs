@@ -286,7 +286,10 @@ namespace Eto.GtkSharp.Forms.Controls
 		{
 			try
 			{
-				// renderD128 is the primary GPU on single-GPU and most PRIME systems.
+				// DRM render nodes are numbered renderD128–renderD255 by kernel convention
+				// (minor numbers 128–255 of the DRM subsystem, as defined in the Linux
+				// drm_minor_alloc implementation).  renderD128 is the primary GPU on
+				// single-GPU and most PRIME configurations.
 				for (int i = 128; i < 256; i++)
 				{
 					var path = $"/dev/dri/renderD{i}";
