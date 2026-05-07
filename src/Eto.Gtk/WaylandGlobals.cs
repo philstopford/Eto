@@ -55,10 +55,10 @@ namespace Eto.GtkSharp
 
 #if !NET
 		// ── POSIX dl* helpers (netstandard2.0 fallback for symbol resolution) ──────
-		[System.Runtime.InteropServices.DllImport("libdl.so.2", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]
+		[System.Runtime.InteropServices.DllImport("libdl", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]
 		static extern IntPtr dlopen(string filename, int flags);
 
-		[System.Runtime.InteropServices.DllImport("libdl.so.2", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]
+		[System.Runtime.InteropServices.DllImport("libdl", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]
 		static extern IntPtr dlsym(IntPtr handle, string symbol);
 #endif
 
