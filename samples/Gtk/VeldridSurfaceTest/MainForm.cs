@@ -116,6 +116,7 @@ public class MainForm : Form
     string? _lastSpatialSnapshot;
     string? _lastInitDeferralSnapshot;
     DateTime _lastInitAttempt;
+    bool _loggedNoRendererOnRender;
 
     // ── Status labels ─────────────────────────────────────────────────────────
     readonly Label _lblStatus  = new Label { Text = "Initialising…" };
@@ -358,6 +359,7 @@ public class MainForm : Form
         int scale = (int)_vulkanSurface.BackingScaleFactor;
         int w = _vulkanSurface.Width * scale;
         int h = _vulkanSurface.Height * scale;
+        Log($"TryInitializeVeldridWhenReady({reason}) size={_vulkanSurface.Size} scale={scale} physical={w}x{h}");
         if (w < MinSurfaceInitDim || h < MinSurfaceInitDim)
         {
             var snapshot = $"{_vulkanSurface.Size}:{scale}:{w}x{h}";
@@ -585,7 +587,16 @@ public class MainForm : Form
 
     void OnVulkanRender(VulkanSurface surface)
     {
-        if (_renderer == null || _gd == null) return;
+        if (_renderer == null || _gd == null)
+        {
+            if (!_loggedNoRendererOnRender)
+            {
+                _loggedNoRendererOnRender = true;
+                Log($"Render skipped: rendererReady={_renderer != null} graphicsDeviceReady={_gd != null} surfaceSize={surface.Size}");
+            }
+            return;
+        }
+        _loggedNoRendererOnRender = false;
 
         // Use physical-pixel dimensions, matching the swapchain created in InitializeVeldrid.
         int scale = (int)surface.BackingScaleFactor;
@@ -868,6 +879,14 @@ public class MainForm : Form
     {
         var line = $"[{DateTime.Now:HH:mm:ss.fff}] {message}";
         Application.Instance.AsyncInvoke(() => _log.Text += line + "\n");
+        try
+        {
+            Console.WriteLine(line);
+        }
+        catch
+        {
+            // Console output failed; UI log remains the primary sink (best-effort only).
+        }
     }
 
     static bool DiagnosticsEnabled()
