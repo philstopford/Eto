@@ -35,6 +35,7 @@ namespace Eto.GtkSharp.Forms.Controls
 		bool _isWayland;
 		bool _surfaceAlive;
 		bool _renderQueued;      // coalesces Invalidate()-triggered renders
+		bool _deferredInitHooked;
 		readonly bool _diagnosticsEnabled = DiagnosticsEnabled();
 		IVulkanSurfaceInfo _surfaceInfo;
 		(int X, int Y)? _lastSubsurfacePosition;
@@ -112,7 +113,7 @@ namespace Eto.GtkSharp.Forms.Controls
 			}
 			else
 			{
-				OnRealized();
+				TryInitializeSurfaceOrDefer("AfterShow");
 			}
 		}
 
@@ -121,6 +122,7 @@ namespace Eto.GtkSharp.Forms.Controls
 		{
 			// Cancel any pending Realized subscription from OnAfterShow.
 			Control.Realized -= HandleRealized;
+			UnhookDeferredInit();
 			TearDownSurface();
 			base.OnUnLoad(e);
 		}
@@ -166,7 +168,12 @@ namespace Eto.GtkSharp.Forms.Controls
 		void HandleRealized(object o, EventArgs e)
 		{
 			Control.Realized -= HandleRealized;
-			OnRealized();
+			TryInitializeSurfaceOrDefer("Realized");
+		}
+
+		void HandleDeferredInitSizeAllocated(object o, Gtk.SizeAllocatedArgs e)
+		{
+			TryInitializeSurfaceOrDefer("DeferredSizeAllocated");
 		}
 
 		void HandleSizeAllocated(object o, Gtk.SizeAllocatedArgs args)
@@ -200,6 +207,42 @@ namespace Eto.GtkSharp.Forms.Controls
 				InitializeWayland();
 			else
 				InitializeX11();
+		}
+
+		void TryInitializeSurfaceOrDefer(string reason)
+		{
+			if (_surfaceAlive)
+			{
+				UnhookDeferredInit();
+				return;
+			}
+
+			OnRealized();
+
+			if (_surfaceAlive)
+			{
+				UnhookDeferredInit();
+				return;
+			}
+
+			HookDeferredInit();
+			Diag($"Surface init deferred ({reason}) — waiting for next size allocation.");
+		}
+
+		void HookDeferredInit()
+		{
+			if (_deferredInitHooked)
+				return;
+			Control.SizeAllocated += HandleDeferredInitSizeAllocated;
+			_deferredInitHooked = true;
+		}
+
+		void UnhookDeferredInit()
+		{
+			if (!_deferredInitHooked)
+				return;
+			Control.SizeAllocated -= HandleDeferredInitSizeAllocated;
+			_deferredInitHooked = false;
 		}
 
 		void InitializeWayland()
@@ -327,6 +370,7 @@ namespace Eto.GtkSharp.Forms.Controls
 		void FireSurfaceCreated()
 		{
 			_surfaceAlive = true;
+			UnhookDeferredInit();
 			Diag("FireSurfaceCreated");
 
 			// OnLoadComplete now defers to OnAfterShow via AsyncInvoke, so this path
