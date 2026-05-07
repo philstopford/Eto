@@ -24,7 +24,6 @@ namespace Eto.GtkSharp.Forms.Controls
 		IntPtr _wlDisplay;
 		IntPtr _wlSurface;      // our created wl_surface*
 		IntPtr _wlSubsurface;   // our wl_subsurface*
-		bool _ownsWaylandSurface;
 
 		// ── X11 state ─────────────────────────────────────────────────────────────
 		IntPtr _xDisplay;
@@ -51,10 +50,6 @@ namespace Eto.GtkSharp.Forms.Controls
 		public void Create()
 		{
 			Control = new Gtk.DrawingArea();
-			// Give the widget its own native GDK window when possible.  On Wayland this
-			// lets us reuse GTK's wl_surface directly instead of creating a parallel
-			// manual subsurface tree, which avoids compositor visibility/stacking issues.
-			Control.HasWindow = true;
 			// Tell GTK not to clear the background on this widget — Vulkan owns the pixels.
 			Control.AppPaintable = true;
 			// Suppress the default drawn signal so the control doesn't flicker.
@@ -189,25 +184,6 @@ namespace Eto.GtkSharp.Forms.Controls
 			// Ensure we have the Wayland globals (idempotent).
 			WaylandGlobals.Initialize(_wlDisplay);
 
-			// Preferred path: if GTK gave this widget its own native GDK window, use the
-			// wl_surface that GDK already owns for the widget.  This mirrors the X11 path
-			// (which uses Control.Window directly) and avoids manual subsurface state that
-			// some Wayland compositors appear to keep invisible despite successful presents.
-			if (Control.Window != null)
-			{
-				var nativeWlSurface = NativeMethods.gdk_wayland_window_get_wl_surface(Control.Window.Handle);
-				if (nativeWlSurface != IntPtr.Zero)
-				{
-					_wlSurface = nativeWlSurface;
-					_ownsWaylandSurface = false;
-					_surfaceInfo = new WaylandSurfaceInfo(
-						_wlDisplay, _wlSurface, FindPreferredDrmRenderNode());
-					Control.SizeAllocated += HandleSizeAllocated;
-					FireSurfaceCreated();
-					return;
-				}
-			}
-
 			if (WaylandGlobals.Compositor == IntPtr.Zero || WaylandGlobals.Subcompositor == IntPtr.Zero)
 				return;
 
@@ -224,7 +200,6 @@ namespace Eto.GtkSharp.Forms.Controls
 			_wlSurface = WaylandGlobals.wl_compositor_create_surface(WaylandGlobals.Compositor);
 			if (_wlSurface == IntPtr.Zero)
 				return;
-			_ownsWaylandSurface = true;
 
 			_wlSubsurface = WaylandGlobals.wl_subcompositor_get_subsurface(
 				WaylandGlobals.Subcompositor, _wlSurface, parentWlSurface);
@@ -233,7 +208,6 @@ namespace Eto.GtkSharp.Forms.Controls
 			{
 				WaylandGlobals.wl_surface_destroy(_wlSurface);
 				_wlSurface = IntPtr.Zero;
-				_ownsWaylandSurface = false;
 				return;
 			}
 
@@ -345,15 +319,11 @@ namespace Eto.GtkSharp.Forms.Controls
 				WaylandGlobals.wl_subsurface_destroy(_wlSubsurface);
 				_wlSubsurface = IntPtr.Zero;
 			}
-			if (_wlSurface != IntPtr.Zero && _ownsWaylandSurface)
+			if (_wlSurface != IntPtr.Zero)
 			{
 				WaylandGlobals.wl_surface_destroy(_wlSurface);
 			}
-			// Always clear the cached pointer here, even for GTK-owned surfaces:
-			// TearDownSurface marks the handler dead, clears _surfaceInfo, and removes
-			// event hooks above, so no subsequent code should keep using a stale native handle.
 			_wlSurface = IntPtr.Zero;
-			_ownsWaylandSurface = false;
 		}
 
 		// ── helpers ───────────────────────────────────────────────────────────────
