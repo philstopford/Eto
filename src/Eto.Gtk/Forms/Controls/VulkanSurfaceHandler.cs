@@ -24,6 +24,7 @@ namespace Eto.GtkSharp.Forms.Controls
 		IntPtr _wlDisplay;
 		IntPtr _wlSurface;      // our created wl_surface*
 		IntPtr _wlSubsurface;   // our wl_subsurface*
+		IntPtr _wlParentSurface; // parent wl_surface (top-level GDK window)
 		bool _ownsWlSurface;    // true only when we created _wlSurface ourselves
 
 		// ── X11 state ─────────────────────────────────────────────────────────────
@@ -209,6 +210,7 @@ namespace Eto.GtkSharp.Forms.Controls
 			var parentWlSurface = NativeMethods.gdk_wayland_window_get_wl_surface(topLevel.Window.Handle);
 			if (parentWlSurface == IntPtr.Zero)
 				return;
+			_wlParentSurface = parentWlSurface;
 			Diag($"InitializeWayland: parent_wl_surface=0x{parentWlSurface.ToInt64():X}");
 
 			// Create our own wl_surface and make it a subsurface of the GTK window surface.
@@ -354,6 +356,7 @@ namespace Eto.GtkSharp.Forms.Controls
 				Diag("TearDownSurface: wl_subsurface destroyed");
 				_wlSubsurface = IntPtr.Zero;
 			}
+			_wlParentSurface = IntPtr.Zero;
 			if (_wlSurface != IntPtr.Zero)
 			{
 				if (_ownsWlSurface)
@@ -392,9 +395,10 @@ namespace Eto.GtkSharp.Forms.Controls
 					_lastSubsurfacePosition = position;
 					Diag($"UpdateSubsurfacePosition: x={x} y={y} topLevelSize={topLevel.AllocatedWidth}x{topLevel.AllocatedHeight} controlSize={Control.AllocatedWidth}x{Control.AllocatedHeight}");
 				}
-				// Do NOT commit _wlSurface here: an empty commit with no pending buffer or
-				// damage sent in desync mode causes some compositors (e.g. Mutter) to
-				// treat the surface as if it has no content, clearing the last Vulkan frame.
+				// Apply pending subsurface state on the parent immediately so position
+				// updates do not depend on unrelated GTK repaint timing.
+				if (_wlParentSurface != IntPtr.Zero)
+					WaylandGlobals.wl_surface_commit(_wlParentSurface);
 			}
 			else
 			{
