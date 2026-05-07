@@ -349,6 +349,9 @@ namespace Eto.GtkSharp.Forms.Controls
 			{
 				WaylandGlobals.wl_surface_destroy(_wlSurface);
 			}
+			// Always clear the cached pointer here, even for GTK-owned surfaces:
+			// TearDownSurface marks the handler dead, clears _surfaceInfo, and removes
+			// event hooks above, so no subsequent code should keep using a stale native handle.
 			_wlSurface = IntPtr.Zero;
 			_ownsWaylandSurface = false;
 		}
