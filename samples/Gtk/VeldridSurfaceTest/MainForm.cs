@@ -62,6 +62,7 @@ namespace VeldridSurfaceTest;
 public class MainForm : Form
 {
     const int DiagnosticsHeartbeatIntervalFrames = 180;
+    const int MinSurfaceInitDim = 4;
 
     // ── Veldrid objects ───────────────────────────────────────────────────────
     GraphicsDevice?   _gd;
@@ -153,7 +154,11 @@ public class MainForm : Form
         surface.SurfaceCreated   += (_, _) => OnSurfaceCreated(surface);
         surface.SurfaceDestroyed += (_, _) => OnSurfaceDestroyed();
         surface.Render           += (_, _) => OnVulkanRender(surface);
-        surface.SizeChanged      += (_, _) => LogSurfaceSpatialSnapshot("Surface.SizeChanged");
+        surface.SizeChanged      += (_, _) =>
+        {
+            LogSurfaceSpatialSnapshot("Surface.SizeChanged");
+            TryInitializeVeldridWhenReady("Surface.SizeChanged");
+        };
 
         // ── Backend selector ─────────────────────────────────────────────────
         _backendDrop = new DropDown();
@@ -297,7 +302,7 @@ public class MainForm : Form
         if (_surfaceInfo != null && _vulkanSurface != null)
         {
             TeardownVeldrid();
-            InitializeVeldrid(_surfaceInfo, _vulkanSurface);
+            TryInitializeVeldridWhenReady("BackendChanged");
         }
     }
 
@@ -318,7 +323,24 @@ public class MainForm : Form
         LogSurfaceSpatialSnapshot("SurfaceCreated");
         _surfaceInfo = info;
 
-        InitializeVeldrid(info, surface);
+        TryInitializeVeldridWhenReady("SurfaceCreated");
+    }
+
+    void TryInitializeVeldridWhenReady(string reason)
+    {
+        if (_gd != null || _surfaceInfo == null || _vulkanSurface == null)
+            return;
+
+        int scale = (int)_vulkanSurface.BackingScaleFactor;
+        int w = _vulkanSurface.Width * scale;
+        int h = _vulkanSurface.Height * scale;
+        if (w < MinSurfaceInitDim || h < MinSurfaceInitDim)
+        {
+            Log($"Deferring Veldrid init ({reason}) — surface not ready yet: size={_vulkanSurface.Size} scale={scale}");
+            return;
+        }
+
+        InitializeVeldrid(_surfaceInfo, _vulkanSurface);
     }
 
     /// <summary>
@@ -344,7 +366,7 @@ public class MainForm : Form
         // while the surface has only 1 logical-pixel height.  Using MinSwapchainDim
         // as the floor for the initial creation avoids the protocol error; the first
         // valid SizeAllocated will trigger a proper resize via the warm-up path below.
-        const int MinSwapchainDim = 4;
+        const int MinSwapchainDim = MinSurfaceInitDim;
         int w = Math.Max(MinSwapchainDim, surface.Width  * scale);
         int h = Math.Max(MinSwapchainDim, surface.Height * scale);
 
