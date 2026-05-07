@@ -1,3 +1,5 @@
+using Eto.NodeGraph;
+
 namespace NodeShapeBuilder;
 
 /// <summary>

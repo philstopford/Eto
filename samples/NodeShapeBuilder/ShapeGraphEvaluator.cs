@@ -1,4 +1,5 @@
 using Clipper2Lib;
+using Eto.NodeGraph;
 
 namespace NodeShapeBuilder;
 

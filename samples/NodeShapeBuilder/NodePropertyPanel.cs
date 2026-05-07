@@ -1,8 +1,11 @@
+using System.Runtime.CompilerServices;
+using Eto.NodeGraph;
+
 namespace NodeShapeBuilder;
 
 /// <summary>
 /// Side panel listing all sockets of the selected node grouped as INPUTS / OUTPUTS.
-/// Each socket row shows a pin checkbox (toggles <see cref="NodeSocket.IsPinned"/>),
+/// Each socket row shows a pin checkbox (toggles <see cref="IsPinned"/>),
 /// a type-colour swatch, the socket name, and—for unconnected inputs—the default value.
 /// Editing a parameter value calls <paramref name="onValueChanged"/> so the caller
 /// can re-evaluate and refresh the geometry preview.
