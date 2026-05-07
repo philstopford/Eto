@@ -385,6 +385,12 @@ public class NodeGraphView : Drawable
 	private const float MaxZoom              = 4f;
 	private const float GridSize             = 20f;
 
+	// ── Minimap constants ────────────────────────────────────────────────────────
+	private const float MinimapWidth    = 200f;
+	private const float MinimapHeight   = 140f;
+	private const float MinimapMargin   = 12f;   // gap from the canvas edge
+	private const float MinimapPadding  = 6f;    // inner padding inside the minimap frame
+
 	// ── Display colors ──────────────────────────────────────────────────────────
 	private static readonly Color s_canvasColor        = Color.FromRgb(0x1E1E2E);
 	private static readonly Color s_gridColor          = Color.FromArgb(50, 50, 70, 255);
@@ -396,6 +402,13 @@ public class NodeGraphView : Drawable
 	private static readonly Color s_valueColor         = Color.FromRgb(0xF5A623);
 	private static readonly Color s_hiddenLabelColor   = Color.FromRgb(0x777788);
 	private static readonly Color s_defaultHeaderColor = Color.FromRgb(0x3D3D6B);
+
+	// ── Minimap colors ───────────────────────────────────────────────────────────
+	private static readonly Color s_minimapBgColor       = Color.FromArgb(20, 20, 32, 210);
+	private static readonly Color s_minimapBorderColor   = Color.FromRgb(0x55557A);
+	private static readonly Color s_minimapViewportColor = Color.FromArgb(255, 255, 255, 50);
+	private static readonly Color s_minimapViewBorder    = Color.FromArgb(255, 255, 255, 160);
+	private static readonly Color s_minimapConnColor     = Color.FromArgb(160, 160, 160, 100);
 
 	// ── State ───────────────────────────────────────────────────────────────────
 	private NodeGraph _graph;
@@ -416,6 +429,9 @@ public class NodeGraphView : Drawable
 	private readonly List<NodeItem>     _selection = new List<NodeItem>();
 	private NodeConnection              _hoveredConnection;
 	private NodeSocket                  _hoveredSocket;
+
+	// ── Minimap state ────────────────────────────────────────────────────────────
+	private bool   _minimapDragging;
 
 	// ── Public API ──────────────────────────────────────────────────────────────
 
@@ -464,6 +480,12 @@ public class NodeGraphView : Drawable
 
 	/// <summary>Raised after a connection is deleted via user interaction.</summary>
 	public event EventHandler<NodeConnectionEventArgs> ConnectionDeleted;
+
+	/// <summary>
+	/// Gets or sets whether the minimap overlay is visible in the bottom-right corner.
+	/// Defaults to <c>true</c>.
+	/// </summary>
+	public bool ShowMinimap { get; set; } = true;
 
 	/// <summary>
 	/// Re-computes the layout for <paramref name="node"/> and redraws the canvas.
@@ -684,6 +706,8 @@ public class NodeGraphView : Drawable
 			if (_connectingFrom != null)
 				DrawPendingConnection(g);
 		}
+
+		DrawMinimap(g);
 	}
 
 	private void DrawGrid(Graphics g)
@@ -890,6 +914,151 @@ public class NodeGraphView : Drawable
 	private static bool IsControlFlowSocket(NodeSocket socket) =>
 		string.Equals(socket.SocketType.Name, "ControlFlow", StringComparison.OrdinalIgnoreCase);
 
+	// ── Minimap ───────────────────────────────────────────────────────────────────
+
+	/// <summary>
+	/// Returns the minimap panel rectangle in view (pixel) coordinates,
+	/// anchored to the bottom-right corner of the canvas.
+	/// </summary>
+	private RectangleF GetMinimapRect() =>
+		new RectangleF(
+			Width  - MinimapWidth  - MinimapMargin,
+			Height - MinimapHeight - MinimapMargin,
+			MinimapWidth,
+			MinimapHeight);
+
+	/// <summary>
+	/// Pans the main canvas so that the graph position that corresponds to
+	/// <paramref name="mmPoint"/> in the minimap is centred in the viewport.
+	/// </summary>
+	private void PanFromMinimap(PointF mmPoint)
+	{
+		var mm = GetMinimapRect();
+
+		var graphBounds = GetGraphBounds();
+		float viewW  = Math.Max(1, Width);
+		float viewH  = Math.Max(1, Height);
+		float vpMinX = (_offset.X > 0 ? 0 : -_offset.X / _zoom);
+		float vpMinY = (_offset.Y > 0 ? 0 : -_offset.Y / _zoom);
+		float vpMaxX = vpMinX + viewW / _zoom;
+		float vpMaxY = vpMinY + viewH / _zoom;
+
+		float worldMinX = Math.Min(graphBounds.Left,  vpMinX);
+		float worldMinY = Math.Min(graphBounds.Top,   vpMinY);
+		float worldMaxX = Math.Max(graphBounds.Right, vpMaxX);
+		float worldMaxY = Math.Max(graphBounds.Bottom, vpMaxY);
+		float worldW = Math.Max(1f, worldMaxX - worldMinX);
+		float worldH = Math.Max(1f, worldMaxY - worldMinY);
+
+		float innerW = mm.Width  - MinimapPadding * 2f;
+		float innerH = mm.Height - MinimapPadding * 2f;
+		float scaleX = innerW / worldW;
+		float scaleY = innerH / worldH;
+		float scale  = Math.Min(scaleX, scaleY);
+
+		float scaledW = worldW * scale;
+		float scaledH = worldH * scale;
+		float originX = mm.X + MinimapPadding + (innerW - scaledW) / 2f;
+		float originY = mm.Y + MinimapPadding + (innerH - scaledH) / 2f;
+
+		// Convert minimap pixel back to graph space
+		float gx = (mmPoint.X - originX) / scale + worldMinX;
+		float gy = (mmPoint.Y - originY) / scale + worldMinY;
+
+		// Pan so that graph point (gx, gy) lands at the viewport centre
+		_offset = new PointF(viewW / 2f - gx * _zoom, viewH / 2f - gy * _zoom);
+		Invalidate();
+	}
+
+	/// <summary>Draws the minimap overlay into <paramref name="g"/> (view-space coordinates).</summary>
+	private void DrawMinimap(Graphics g)
+	{
+		if (!ShowMinimap || _graph == null || _graph.Nodes.Count == 0) return;
+
+		var mm = GetMinimapRect();
+
+		// ── Background ────────────────────────────────────────────────────────────
+		g.FillRectangle(s_minimapBgColor, mm);
+		using (var border = new Pen(s_minimapBorderColor, 1f))
+			g.DrawRectangle(border, mm);
+
+		// ── Compute the graph-space region that the minimap must fit ──────────────
+		var graphBounds = GetGraphBounds();
+
+		// Expand slightly so the viewport rect can extend beyond nodes
+		float viewW  = Math.Max(1, Width);
+		float viewH  = Math.Max(1, Height);
+		float vpMinX = (_offset.X > 0 ? 0 : -_offset.X / _zoom);
+		float vpMinY = (_offset.Y > 0 ? 0 : -_offset.Y / _zoom);
+		float vpMaxX = vpMinX + viewW / _zoom;
+		float vpMaxY = vpMinY + viewH / _zoom;
+
+		float worldMinX = Math.Min(graphBounds.Left,  vpMinX);
+		float worldMinY = Math.Min(graphBounds.Top,   vpMinY);
+		float worldMaxX = Math.Max(graphBounds.Right, vpMaxX);
+		float worldMaxY = Math.Max(graphBounds.Bottom, vpMaxY);
+
+		float worldW = Math.Max(1f, worldMaxX - worldMinX);
+		float worldH = Math.Max(1f, worldMaxY - worldMinY);
+
+		// Inner drawable area (inside the frame + padding)
+		float innerX = mm.X + MinimapPadding;
+		float innerY = mm.Y + MinimapPadding;
+		float innerW = mm.Width  - MinimapPadding * 2f;
+		float innerH = mm.Height - MinimapPadding * 2f;
+
+		// Uniform scale so the world fits inside the inner area
+		float scaleX = innerW / worldW;
+		float scaleY = innerH / worldH;
+		float scale  = Math.Min(scaleX, scaleY);
+
+		// Offset so the scaled world is centred inside the inner area
+		float scaledW = worldW * scale;
+		float scaledH = worldH * scale;
+		float originX = innerX + (innerW - scaledW) / 2f;
+		float originY = innerY + (innerH - scaledH) / 2f;
+
+		// Helper: graph-space point → minimap pixel
+		PointF ToMM(float gx, float gy) =>
+			new PointF(originX + (gx - worldMinX) * scale,
+			           originY + (gy - worldMinY) * scale);
+
+		// ── Draw connections ──────────────────────────────────────────────────────
+		using (var connPen = new Pen(s_minimapConnColor, 1f))
+		{
+			foreach (var conn in _graph.Connections)
+			{
+				if (!conn.Source.IsPinned || !conn.Target.IsPinned) continue;
+				var src = GetSocketCenter(conn.Source);
+				var tgt = GetSocketCenter(conn.Target);
+				g.DrawLine(connPen, ToMM(src.X, src.Y), ToMM(tgt.X, tgt.Y));
+			}
+		}
+
+		// ── Draw nodes ────────────────────────────────────────────────────────────
+		foreach (var node in _graph.Nodes)
+		{
+			var tl = ToMM(node.Position.X, node.Position.Y);
+			var br = ToMM(node.Position.X + node.ComputedWidth,
+			              node.Position.Y + node.ComputedHeight);
+			float nw = Math.Max(1f, br.X - tl.X);
+			float nh = Math.Max(1f, br.Y - tl.Y);
+
+			var headerColor = (node.HeaderColor.A < 0.01f) ? s_defaultHeaderColor : node.HeaderColor;
+			g.FillRectangle(headerColor, tl.X, tl.Y, nw, nh);
+		}
+
+		// ── Draw viewport rectangle ───────────────────────────────────────────────
+		var vpTL = ToMM(vpMinX, vpMinY);
+		var vpBR = ToMM(vpMaxX, vpMaxY);
+		float vpW = Math.Max(1f, vpBR.X - vpTL.X);
+		float vpH = Math.Max(1f, vpBR.Y - vpTL.Y);
+
+		g.FillRectangle(s_minimapViewportColor, vpTL.X, vpTL.Y, vpW, vpH);
+		using (var vpPen = new Pen(s_minimapViewBorder, 1.5f))
+			g.DrawRectangle(vpPen, vpTL.X, vpTL.Y, vpW, vpH);
+	}
+
 	// ── Mouse events ─────────────────────────────────────────────────────────────
 
 	/// <inheritdoc/>
@@ -897,6 +1066,20 @@ public class NodeGraphView : Drawable
 	{
 		base.OnMouseDown(e);
 		Focus();
+
+		// ── Minimap click: pan the main canvas ────────────────────────────────────
+		if (e.Buttons == MouseButtons.Primary && ShowMinimap &&
+		    _graph != null && _graph.Nodes.Count > 0)
+		{
+			var mm = GetMinimapRect();
+			if (mm.Contains(e.Location))
+			{
+				PanFromMinimap(e.Location);
+				_minimapDragging = true;
+				e.Handled = true;
+				return;
+			}
+		}
 
 		// ── Panning ──────────────────────────────────────────────────────────────
 		bool altDown = e.Modifiers.HasFlag(Keys.Alt);
@@ -995,6 +1178,12 @@ public class NodeGraphView : Drawable
 	{
 		base.OnMouseMove(e);
 
+		if (_minimapDragging)
+		{
+			PanFromMinimap(e.Location);
+			return;
+		}
+
 		if (_isPanning)
 		{
 			var delta = e.Location - _panStart;
@@ -1036,6 +1225,13 @@ public class NodeGraphView : Drawable
 	protected override void OnMouseUp(MouseEventArgs e)
 	{
 		base.OnMouseUp(e);
+
+		if (_minimapDragging)
+		{
+			_minimapDragging = false;
+			e.Handled = true;
+			return;
+		}
 
 		_isPanning          = false;
 		_dragNode           = null;
@@ -1158,6 +1354,29 @@ public class NodeGraphView : Drawable
 	{
 		if (_graph == null || _graph.Nodes.Count == 0) return;
 
+		var bounds = GetGraphBounds();
+		float margin = 40f;
+		float gw = bounds.Width  + margin * 2;
+		float gh = bounds.Height + margin * 2;
+
+		float viewW = Math.Max(1, Width);
+		float viewH = Math.Max(1, Height);
+
+		_zoom = Math.Max(MinZoom, Math.Min(MaxZoom, Math.Min(viewW / gw, viewH / gh)));
+		_offset = new PointF(
+			viewW / 2f - (bounds.Left + bounds.Width  / 2f) * _zoom,
+			viewH / 2f - (bounds.Top  + bounds.Height / 2f) * _zoom);
+		Invalidate();
+	}
+
+	/// <summary>
+	/// Returns the bounding rectangle (in graph space) that encloses all nodes,
+	/// or <see cref="RectangleF.Empty"/> when the graph is empty.
+	/// </summary>
+	private RectangleF GetGraphBounds()
+	{
+		if (_graph == null || _graph.Nodes.Count == 0) return RectangleF.Empty;
+
 		float minX = float.MaxValue, minY = float.MaxValue;
 		float maxX = float.MinValue, maxY = float.MinValue;
 		foreach (var node in _graph.Nodes)
@@ -1167,19 +1386,7 @@ public class NodeGraphView : Drawable
 			maxX = Math.Max(maxX, node.Position.X + node.ComputedWidth);
 			maxY = Math.Max(maxY, node.Position.Y + node.ComputedHeight);
 		}
-
-		float margin = 40f;
-		float gw = maxX - minX + margin * 2;
-		float gh = maxY - minY + margin * 2;
-
-		float viewW = Math.Max(1, Width);
-		float viewH = Math.Max(1, Height);
-
-		_zoom = Math.Max(MinZoom, Math.Min(MaxZoom, Math.Min(viewW / gw, viewH / gh)));
-		_offset = new PointF(
-			viewW / 2f - ((minX + maxX) / 2f) * _zoom,
-			viewH / 2f - ((minY + maxY) / 2f) * _zoom);
-		Invalidate();
+		return new RectangleF(minX, minY, maxX - minX, maxY - minY);
 	}
 
 	/// <summary>
