@@ -214,11 +214,10 @@ namespace Eto.GtkSharp.Forms.Controls
 			// Desync: Vulkan presents independently of GTK's render loop.
 			WaylandGlobals.wl_subsurface_set_desync(_wlSubsurface);
 
-			// Do NOT call place_above here.  New wl_subsurfaces are created at the top of
-			// the parent's sibling z-stack by default — that is the correct position (above
-			// all GTK-drawn content).  Calling place_above(parentWlSurface) would move the
-			// subsurface to the *bottom* of the sibling stack (just above the parent), which
-			// places it below any other subsurfaces GTK may have created, making it invisible.
+			// Explicitly place the Vulkan subsurface above the parent surface.  Some
+			// compositor/GTK combinations keep the newly created subsurface effectively
+			// occluded unless we apply the z-order request ourselves.
+			WaylandGlobals.wl_subsurface_place_above(_wlSubsurface, parentWlSurface);
 
 			// Inform the compositor of the pixel density.  On HiDPI displays (GTK
 			// scale ≥ 2) Vulkan will render at physical-pixel resolution; without
