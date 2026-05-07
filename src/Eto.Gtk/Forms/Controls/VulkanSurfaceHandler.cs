@@ -88,15 +88,39 @@ namespace Eto.GtkSharp.Forms.Controls
 		public override void OnLoadComplete(EventArgs e)
 		{
 			base.OnLoadComplete(e);
+			// FormHandler.Show() calls Control.Realize() and fires OnLoadComplete
+			// synchronously, then calls Control.Show() to map the GTK window.
+			// On Wayland, gdk_wayland_window_get_wl_surface() returns IntPtr.Zero
+			// until the top-level GDK window is actually shown (mapped): the
+			// wl_surface is created inside gdk_window_impl_wayland_show(), which
+			// runs during Control.Show(), not Control.Realize().
+			//
+			// Deferring via AsyncInvoke ensures our initialization callback runs
+			// after Control.Show() has returned and the wl_surface exists.
+			Application.Instance.AsyncInvoke(OnAfterShow);
+		}
+
+		void OnAfterShow()
+		{
+			if (_surfaceAlive)
+				return; // already initialized (e.g. form shown a second time)
 			if (!Control.IsRealized)
+			{
+				// Widget is not yet realized (dynamically added to an unshown
+				// container). Subscribe to Realized; initialize from there.
 				Control.Realized += HandleRealized;
+			}
 			else
+			{
 				OnRealized();
+			}
 		}
 
 		/// <inheritdoc/>
 		public override void OnUnLoad(EventArgs e)
 		{
+			// Cancel any pending Realized subscription from OnAfterShow.
+			Control.Realized -= HandleRealized;
 			TearDownSurface();
 			base.OnUnLoad(e);
 		}
@@ -438,10 +462,14 @@ namespace Eto.GtkSharp.Forms.Controls
 			if (display == null)
 				return false;
 
-			// "wayland-0", "wayland-1", etc. on Wayland; ":0", ":1" etc. on X11.
+			// Use the GDK display name: "wayland-0", "wayland-1", etc. on Wayland;
+			// ":0", ":1", etc. on X11 (including XWayland).  Do NOT fall back to
+			// the WAYLAND_DISPLAY environment variable: that variable is set even
+			// when GDK is running in X11 mode (GDK_BACKEND=x11), which would cause
+			// us to call gdk_wayland_display_get_wl_display on a GdkX11Display and
+			// then fail to get the parent wl_surface, leaving SurfaceCreated unfired.
 			var name = display.Name ?? string.Empty;
-			return name.StartsWith("wayland", StringComparison.OrdinalIgnoreCase)
-				|| !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY"));
+			return name.StartsWith("wayland", StringComparison.OrdinalIgnoreCase);
 		}
 
 		/// <summary>
