@@ -207,9 +207,23 @@ namespace Eto.GtkSharp.Forms.Controls
 		{
 			Diag($"OnRealized: isWayland={_isWayland} controlWindow={Control.Window?.Handle ?? IntPtr.Zero}");
 			if (_isWayland)
+			{
 				InitializeWayland();
+				if (!_surfaceAlive)
+				{
+					Diag("OnRealized: Wayland init did not create a surface; trying X11 fallback.");
+					InitializeX11();
+				}
+			}
 			else
+			{
 				InitializeX11();
+				if (!_surfaceAlive)
+				{
+					Diag("OnRealized: X11 init did not create a surface; trying Wayland fallback.");
+					InitializeWayland();
+				}
+			}
 		}
 
 		void TryInitializeSurfaceOrDefer(string reason)
