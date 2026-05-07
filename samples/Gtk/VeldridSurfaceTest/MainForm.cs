@@ -150,7 +150,10 @@ public class MainForm : Form
         // ── VulkanSurface — Veldrid renders into this ────────────────────────
         // The VulkanSurface exposes native display/window handles (wl_surface
         // or XWindow) which we use for BOTH the Vulkan and OpenGL backends.
-        var surface = new VulkanSurface();
+        var surface = new VulkanSurface
+        {
+            Size = new Size(320, SurfaceViewportHeight),
+        };
         _vulkanSurface = surface;
         surface.SurfaceCreated   += (_, _) => OnSurfaceCreated(surface);
         surface.SurfaceDestroyed += (_, _) => OnSurfaceDestroyed();
