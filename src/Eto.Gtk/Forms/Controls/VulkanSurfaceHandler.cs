@@ -70,6 +70,7 @@ namespace Eto.GtkSharp.Forms.Controls
 			_isWayland = DetectWayland();
 			// Hook Realized eagerly so initialization can still start even if
 			// a container/load-complete propagation path misses this control.
+			Control.Realized -= HandleRealized;
 			Control.Realized += HandleRealized;
 			Diag($"Initialize: wayland={_isWayland} scale={Control.ScaleFactor} display='{Gdk.Display.Default?.Name ?? "<null>"}'");
 		}
@@ -447,6 +448,7 @@ namespace Eto.GtkSharp.Forms.Controls
 		void TearDownSurface()
 		{
 			Diag("TearDownSurface begin");
+			Control.Realized -= HandleRealized;
 			CancelDeferredInitTimer();
 			if (_surfaceAlive)
 			{
