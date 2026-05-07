@@ -292,27 +292,37 @@ namespace Eto.GtkSharp.Forms.Controls
 		{
 			_surfaceAlive = true;
 			Diag("FireSurfaceCreated");
-			Callback.OnSurfaceCreated(Widget, EventArgs.Empty);
 
-			// Defer the initial render to the next main-loop iteration, exactly
-			// as HandleDrawn and HandleSizeAllocated do.  FireSurfaceCreated is
-			// called from OnRealized → HandleRealized, which is a GTK signal
-			// handler.  Calling eglSwapBuffers (OpenGL) or vkQueuePresentKHR
-			// (Vulkan) from inside a GTK signal handler causes the same Wayland
-			// re-entrancy issue that was fixed in HandleDrawn: the compositor
-			// receives a wl_surface_commit while libwayland is already inside
-			// an event dispatch loop, corrupting protocol state and making all
-			// subsequent frames render as a solid black surface.
-			if (!_renderQueued)
+			// Defer OnSurfaceCreated to the next main-loop iteration, for the same
+			// reason that the initial render is deferred below.  FireSurfaceCreated
+			// is called from OnRealized → HandleRealized, which runs inside GDK's
+			// Wayland event dispatch loop (wl_display_dispatch).  OnSurfaceCreated
+			// typically creates a Veldrid GraphicsDevice, whose Vulkan/Wayland WSI
+			// internally calls wl_display_roundtrip — a nested dispatch — which is
+			// a re-entrancy violation in libwayland.  The violation corrupts the
+			// compositor's view of the wl_surface, causing all subsequent
+			// vkQueuePresentKHR frames to appear as a solid black surface.
+			Application.Instance.AsyncInvoke(() =>
 			{
-				_renderQueued = true;
-				Application.Instance.AsyncInvoke(() =>
+				if (!_surfaceAlive)
+					return;
+
+				Callback.OnSurfaceCreated(Widget, EventArgs.Empty);
+
+				// Schedule the first render after the surface-created callback
+				// has returned, so the user's device/swapchain setup is complete
+				// before we ask for the first frame.
+				if (!_renderQueued)
 				{
-					_renderQueued = false;
-					if (_surfaceAlive)
-						Callback.OnRender(Widget, new VulkanRenderEventArgs());
-				});
-			}
+					_renderQueued = true;
+					Application.Instance.AsyncInvoke(() =>
+					{
+						_renderQueued = false;
+						if (_surfaceAlive)
+							Callback.OnRender(Widget, new VulkanRenderEventArgs());
+					});
+				}
+			});
 		}
 
 		void TearDownSurface()

@@ -204,6 +204,7 @@ public class VulkanSurface : Control
 	/// Handler interface that platform implementations must implement.
 	/// </summary>
 	[AutoInitialize(false)]
+	[CLSCompliant(false)]
 	public new interface IHandler : Control.IHandler
 	{
 		/// <summary>Creates the underlying native widget. Called before <see cref="Widget.Initialize"/>.</summary>
