@@ -24,7 +24,7 @@ namespace Eto.GtkSharp.Forms.Controls
 		IntPtr _wlDisplay;
 		IntPtr _wlSurface;      // our created wl_surface*
 		IntPtr _wlSubsurface;   // our wl_subsurface*
-		IntPtr _wlParentSurface; // parent wl_surface (top-level GDK window)
+		IntPtr _wlParentSurface; // borrowed parent wl_surface (top-level GDK window); never destroyed here
 		bool _ownsWlSurface;    // true only when we created _wlSurface ourselves
 
 		// ── X11 state ─────────────────────────────────────────────────────────────
