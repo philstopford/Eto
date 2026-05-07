@@ -329,36 +329,23 @@ namespace Eto.GtkSharp.Forms.Controls
 			_surfaceAlive = true;
 			Diag("FireSurfaceCreated");
 
-			// Defer OnSurfaceCreated to the next main-loop iteration, for the same
-			// reason that the initial render is deferred below.  FireSurfaceCreated
-			// is called from OnRealized → HandleRealized, which runs inside GDK's
-			// Wayland event dispatch loop (wl_display_dispatch).  OnSurfaceCreated
-			// typically creates a Veldrid GraphicsDevice, whose Vulkan/Wayland WSI
-			// internally calls wl_display_roundtrip — a nested dispatch — which is
-			// a re-entrancy violation in libwayland.  The violation corrupts the
-			// compositor's view of the wl_surface, causing all subsequent
-			// vkQueuePresentKHR frames to appear as a solid black surface.
-			Application.Instance.AsyncInvoke(() =>
+			// OnLoadComplete now defers to OnAfterShow via AsyncInvoke, so this path
+			// is already outside the immediate realize/show call stack.  Raise
+			// SurfaceCreated immediately so consumers can initialize before any
+			// subsequent size-allocated render bursts arrive.
+			Callback.OnSurfaceCreated(Widget, EventArgs.Empty);
+
+			// Keep first render deferred to avoid presenting inside GTK handler code.
+			if (!_renderQueued)
 			{
-				if (!_surfaceAlive)
-					return;
-
-				Callback.OnSurfaceCreated(Widget, EventArgs.Empty);
-
-				// Schedule the first render after the surface-created callback
-				// has returned, so the user's device/swapchain setup is complete
-				// before we ask for the first frame.
-				if (!_renderQueued)
+				_renderQueued = true;
+				Application.Instance.AsyncInvoke(() =>
 				{
-					_renderQueued = true;
-					Application.Instance.AsyncInvoke(() =>
-					{
-						_renderQueued = false;
-						if (_surfaceAlive)
-							Callback.OnRender(Widget, new VulkanRenderEventArgs());
-					});
-				}
-			});
+					_renderQueued = false;
+					if (_surfaceAlive)
+						Callback.OnRender(Widget, new VulkanRenderEventArgs());
+				});
+			}
 		}
 
 		void TearDownSurface()
