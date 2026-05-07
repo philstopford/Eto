@@ -337,8 +337,16 @@ public class MainForm : Form
         // wl_surface_set_buffer_scale hint in VulkanSurfaceHandler already tells
         // the compositor to interpret the buffer at that scale.
         int scale = (int)surface.BackingScaleFactor;
-        int w = Math.Max(1, surface.Width  * scale);
-        int h = Math.Max(1, surface.Height * scale);
+        // On Wayland, compositors (e.g. Mutter/KWin) issue a protocol error (EPROTO)
+        // if a VkSwapchainKHR is created with a degenerate extent (height=1 or 0).
+        // GTK emits SizeAllocated with h=1 during intermediate layout passes before
+        // the widget has been given its final allocation, so SurfaceCreated may fire
+        // while the surface has only 1 logical-pixel height.  Using MinSwapchainDim
+        // as the floor for the initial creation avoids the protocol error; the first
+        // valid SizeAllocated will trigger a proper resize via the warm-up path below.
+        const int MinSwapchainDim = 4;
+        int w = Math.Max(MinSwapchainDim, surface.Width  * scale);
+        int h = Math.Max(MinSwapchainDim, surface.Height * scale);
 
         // ── Shared GraphicsDeviceOptions ──────────────────────────────────────
         // D24_UNorm_S8_UInt is supported on all backends and gives a 24-bit
@@ -529,8 +537,16 @@ public class MainForm : Form
 
         // Use physical-pixel dimensions, matching the swapchain created in InitializeVeldrid.
         int scale = (int)surface.BackingScaleFactor;
-        int w = Math.Max(1, surface.Width  * scale);
-        int h = Math.Max(1, surface.Height * scale);
+        int w = surface.Width  * scale;
+        int h = surface.Height * scale;
+
+        // GTK emits SizeAllocated with intermediate allocations (e.g. h=1) before the
+        // widget has its final size.  Passing degenerate extents to vkCreateSwapchainKHR
+        // causes a Wayland protocol error (EPROTO=71) on compositors such as Mutter.
+        // Skip the frame entirely; the next SizeAllocated with the real allocation will
+        // trigger a new render via the handler's AsyncInvoke path.
+        const int MinRenderDim = 4;
+        if (w < MinRenderDim || h < MinRenderDim) return;
 
         // For Wayland EGL: the wl_egl_window must be resized before the frame
         // so the compositor knows the new dimensions before we swap.
