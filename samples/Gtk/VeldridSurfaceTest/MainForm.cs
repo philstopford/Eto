@@ -61,6 +61,8 @@ namespace VeldridSurfaceTest;
 /// </summary>
 public class MainForm : Form
 {
+    const int DiagnosticsHeartbeatIntervalFrames = 180;
+
     // ── Veldrid objects ───────────────────────────────────────────────────────
     GraphicsDevice?   _gd;
     VeldridRenderer?  _renderer;
@@ -539,7 +541,7 @@ public class MainForm : Form
 
         _totalFrames++;
         _lblFrames.Text = _totalFrames.ToString();
-        if (_diagnosticsEnabled && (_totalFrames % 180) == 0)
+        if (_diagnosticsEnabled && (_totalFrames % DiagnosticsHeartbeatIntervalFrames) == 0)
             Log($"Render heartbeat  backend={_gd.BackendType}  frames={_totalFrames}  surface={surface.Size}  scale={(int)surface.BackingScaleFactor}");
 
         try

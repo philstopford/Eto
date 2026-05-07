@@ -35,9 +35,7 @@ namespace Eto.GtkSharp.Forms.Controls
 		bool _renderQueued;      // coalesces Invalidate()-triggered renders
 		readonly bool _diagnosticsEnabled = DiagnosticsEnabled();
 		IVulkanSurfaceInfo _surfaceInfo;
-		bool _haveLastSubsurfacePosition;
-		int _lastSubsurfaceX;
-		int _lastSubsurfaceY;
+		(int X, int Y)? _lastSubsurfacePosition;
 
 		// ── IHandler ─────────────────────────────────────────────────────────────
 
@@ -360,11 +358,10 @@ namespace Eto.GtkSharp.Forms.Controls
 				// wl_subsurface.set_position takes logical-pixel coordinates; the position
 				// is applied to the parent's next commit (triggered by GTK rendering).
 				WaylandGlobals.wl_subsurface_set_position(_wlSubsurface, x, y);
-				if (!_haveLastSubsurfacePosition || _lastSubsurfaceX != x || _lastSubsurfaceY != y)
+				var position = (x, y);
+				if (_lastSubsurfacePosition != position)
 				{
-					_haveLastSubsurfacePosition = true;
-					_lastSubsurfaceX = x;
-					_lastSubsurfaceY = y;
+					_lastSubsurfacePosition = position;
 					Diag($"UpdateSubsurfacePosition: x={x} y={y} topLevelSize={topLevel.AllocatedWidth}x{topLevel.AllocatedHeight} controlSize={Control.AllocatedWidth}x{Control.AllocatedHeight}");
 				}
 				// Do NOT commit _wlSurface here: an empty commit with no pending buffer or
