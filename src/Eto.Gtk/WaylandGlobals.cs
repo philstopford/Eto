@@ -53,6 +53,15 @@ namespace Eto.GtkSharp
 		[System.Runtime.InteropServices.DllImport(libwayland, CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]
 		static extern void wl_proxy_marshal_array(IntPtr proxy, uint opcode, WlArgument* args);
 
+#if !NET
+		// ── POSIX dl* helpers (netstandard2.0 fallback for symbol resolution) ──────
+		[System.Runtime.InteropServices.DllImport("libdl.so.2", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]
+		static extern IntPtr dlopen(string filename, int flags);
+
+		[System.Runtime.InteropServices.DllImport("libdl.so.2", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]
+		static extern IntPtr dlsym(IntPtr handle, string symbol);
+#endif
+
 		// ── wl_argument union ─────────────────────────────────────────────────────
 		//
 		// Mirrors the C union wl_argument { int32_t i; uint32_t u; wl_fixed_t f;
@@ -142,12 +151,26 @@ namespace Eto.GtkSharp
 			// so that the returned proxies are correctly typed inside libwayland.
 			try
 			{
+#if NET
+				// NativeLibrary is available on .NET 5+.
 				var lib = System.Runtime.InteropServices.NativeLibrary.Load(libwayland);
-				_registryIface     = System.Runtime.InteropServices.NativeLibrary.GetExport(lib, "wl_registry_interface");
-				_compositorIface   = System.Runtime.InteropServices.NativeLibrary.GetExport(lib, "wl_compositor_interface");
+				_registryIface      = System.Runtime.InteropServices.NativeLibrary.GetExport(lib, "wl_registry_interface");
+				_compositorIface    = System.Runtime.InteropServices.NativeLibrary.GetExport(lib, "wl_compositor_interface");
 				_subcompositorIface = System.Runtime.InteropServices.NativeLibrary.GetExport(lib, "wl_subcompositor_interface");
-				_surfaceIface      = System.Runtime.InteropServices.NativeLibrary.GetExport(lib, "wl_surface_interface");
-				_subsurfaceIface   = System.Runtime.InteropServices.NativeLibrary.GetExport(lib, "wl_subsurface_interface");
+				_surfaceIface       = System.Runtime.InteropServices.NativeLibrary.GetExport(lib, "wl_surface_interface");
+				_subsurfaceIface    = System.Runtime.InteropServices.NativeLibrary.GetExport(lib, "wl_subsurface_interface");
+#else
+				// netstandard2.0: fall back to POSIX dlopen/dlsym.
+				const int RTLD_NOW = 2;
+				var lib = dlopen(libwayland, RTLD_NOW);
+				if (lib == IntPtr.Zero)
+					return;
+				_registryIface      = dlsym(lib, "wl_registry_interface");
+				_compositorIface    = dlsym(lib, "wl_compositor_interface");
+				_subcompositorIface = dlsym(lib, "wl_subcompositor_interface");
+				_surfaceIface       = dlsym(lib, "wl_surface_interface");
+				_subsurfaceIface    = dlsym(lib, "wl_subsurface_interface");
+#endif
 			}
 			catch
 			{
