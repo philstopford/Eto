@@ -68,6 +68,9 @@ namespace Eto.GtkSharp.Forms.Controls
 		{
 			base.Initialize();
 			_isWayland = DetectWayland();
+			// Hook Realized eagerly so initialization can still start even if
+			// a container/load-complete propagation path misses this control.
+			Control.Realized += HandleRealized;
 			Diag($"Initialize: wayland={_isWayland} scale={Control.ScaleFactor} display='{Gdk.Display.Default?.Name ?? "<null>"}'");
 		}
 
@@ -107,13 +110,7 @@ namespace Eto.GtkSharp.Forms.Controls
 		{
 			if (_surfaceAlive)
 				return; // already initialized (e.g. form shown a second time)
-			if (!Control.IsRealized)
-			{
-				// Widget is not yet realized (dynamically added to an unshown
-				// container). Subscribe to Realized; initialize from there.
-				Control.Realized += HandleRealized;
-			}
-			else
+			if (Control.IsRealized)
 			{
 				TryInitializeSurfaceOrDefer("AfterShow");
 			}
