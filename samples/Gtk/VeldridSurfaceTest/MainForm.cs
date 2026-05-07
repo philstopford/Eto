@@ -113,6 +113,7 @@ public class MainForm : Form
     readonly bool _diagnosticsEnabled = DiagnosticsEnabled();
     UITimer? _diagnosticsTimer;
     string? _lastSpatialSnapshot;
+    string? _lastInitDeferralSnapshot;
 
     // ── Status labels ─────────────────────────────────────────────────────────
     readonly Label _lblStatus  = new Label { Text = "Initialising…" };
@@ -177,6 +178,9 @@ public class MainForm : Form
         _animTimer = new UITimer { Interval = 1.0 / 60.0 };
         _animTimer.Elapsed += (_, _) =>
         {
+            if (_gd == null)
+                TryInitializeVeldridWhenReady("Timer");
+
             if (!_paused)
             {
                 _angle += 0.02f;
@@ -351,10 +355,16 @@ public class MainForm : Form
         int h = _vulkanSurface.Height * scale;
         if (w < MinSurfaceInitDim || h < MinSurfaceInitDim)
         {
-            Log($"Deferring Veldrid init ({reason}) — surface not ready yet: size={_vulkanSurface.Size} scale={scale}");
+            var snapshot = $"{_vulkanSurface.Size}:{scale}:{w}x{h}";
+            if (!string.Equals(snapshot, _lastInitDeferralSnapshot, StringComparison.Ordinal))
+            {
+                _lastInitDeferralSnapshot = snapshot;
+                Log($"Deferring Veldrid init ({reason}) — surface not ready yet: size={_vulkanSurface.Size} scale={scale}");
+            }
             return;
         }
 
+        _lastInitDeferralSnapshot = null;
         InitializeVeldrid(_surfaceInfo, _vulkanSurface);
     }
 
