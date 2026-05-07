@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageId>Eto.NodeGraph</PackageId>
+    <Title>Eto.NodeGraph</Title>
+    <Description>Node-graph canvas control for Eto.Forms</Description>
+    <PackageTags>cross platform gui ui framework node graph eto.forms</PackageTags>
+    <PackageDescription>
+Eto.NodeGraph provides an interactive node-graph canvas control (NodeGraphView) and
+companion side-panel (NodeListPanel) built on top of the Eto.Forms Drawable primitive.
+It runs unchanged on all Eto targets: WinForms, WPF, GTK and macOS.
+    </PackageDescription>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Eto\Eto.csproj" />
+  </ItemGroup>
+</Project>
