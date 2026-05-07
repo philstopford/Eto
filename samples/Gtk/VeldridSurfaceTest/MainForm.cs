@@ -105,6 +105,9 @@ public class MainForm : Form
     DateTime _fpsEpoch  = DateTime.Now;
     long     _totalFrames;
     DateTime _lastRender = DateTime.Now;
+    uint     _swapchainW;
+    uint     _swapchainH;
+    bool     _swapchainCanResize;
     readonly bool _diagnosticsEnabled = DiagnosticsEnabled();
     UITimer? _diagnosticsTimer;
     string? _lastSpatialSnapshot;
@@ -372,6 +375,9 @@ public class MainForm : Form
         {
             _renderer = new VeldridRenderer(_gd, (uint)w, (uint)h);
             _lastRender = DateTime.Now;
+            _swapchainW = (uint)w;
+            _swapchainH = (uint)h;
+            _swapchainCanResize = false; // avoid immediate recreate churn before first present
 
             _lblBackend.Text = _gd.BackendType.ToString();
             _lblStatus.Text  = $"Rendering ({_gd.DeviceName})";
@@ -531,8 +537,26 @@ public class MainForm : Form
         if (_wlEglWindow != IntPtr.Zero)
             OpenGLHelper.ResizeWlEglWindow(_wlEglWindow, w, h);
 
-        // Handle swapchain resize (VeldridRenderer.Resize is a no-op if unchanged).
-        _renderer.Resize((uint)w, (uint)h);
+        uint targetW = (uint)w;
+        uint targetH = (uint)h;
+
+        // Handle swapchain resize only after at least one successful present.
+        // On some Wayland setups, immediately recreating the Vulkan swapchain
+        // after device creation can trigger a Veldrid internal crash.
+        if (_swapchainCanResize && (targetW != _swapchainW || targetH != _swapchainH))
+        {
+            try
+            {
+                _renderer.Resize(targetW, targetH);
+                _swapchainW = targetW;
+                _swapchainH = targetH;
+            }
+            catch (Exception ex)
+            {
+                Log($"ResizeMainWindow error: {ex.Message}");
+                return;
+            }
+        }
 
         // Compute the combined camera angles — same formula as the Eto wireframe
         // so both cubes always display exactly the same orientation.
@@ -547,6 +571,7 @@ public class MainForm : Form
         try
         {
             _renderer.RenderFrame(yaw, pitch, _zoom);
+            _swapchainCanResize = true;
         }
         catch (Exception ex)
         {
@@ -571,6 +596,9 @@ public class MainForm : Form
     {
         _renderer?.Dispose();
         _renderer = null;
+        _swapchainCanResize = false;
+        _swapchainW = 0;
+        _swapchainH = 0;
 
         try { _gd?.WaitForIdle(); } catch { }
         _gd?.Dispose();
