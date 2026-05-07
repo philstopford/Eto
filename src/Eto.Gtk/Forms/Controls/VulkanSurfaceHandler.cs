@@ -214,8 +214,11 @@ namespace Eto.GtkSharp.Forms.Controls
 			// Desync: Vulkan presents independently of GTK's render loop.
 			WaylandGlobals.wl_subsurface_set_desync(_wlSubsurface);
 
-			// Place above the parent wl_surface so the Vulkan content is visible.
-			WaylandGlobals.wl_subsurface_place_above(_wlSubsurface, parentWlSurface);
+			// Do NOT call place_above here.  New wl_subsurfaces are created at the top of
+			// the parent's sibling z-stack by default — that is the correct position (above
+			// all GTK-drawn content).  Calling place_above(parentWlSurface) would move the
+			// subsurface to the *bottom* of the sibling stack (just above the parent), which
+			// places it below any other subsurfaces GTK may have created, making it invisible.
 
 			// Inform the compositor of the pixel density.  On HiDPI displays (GTK
 			// scale ≥ 2) Vulkan will render at physical-pixel resolution; without
@@ -225,14 +228,25 @@ namespace Eto.GtkSharp.Forms.Controls
 			if (backingScale > 1)
 				WaylandGlobals.wl_surface_set_buffer_scale(_wlSurface, backingScale);
 
-			// Set initial position and schedule a parent commit via GTK.
+			// Set initial position (pending until parent commits).
 			UpdateSubsurfacePosition();
-			topLevel.QueueDraw();
 
-			// Flush all queued protocol messages now so that the compositor receives
-			// set_desync / place_above / set_position / set_buffer_scale before
-			// Veldrid blocks the main thread for ~300 ms creating the Vulkan device.
-			WaylandGlobals.Flush(_wlDisplay);
+			// Commit the parent surface NOW to apply all pending subsurface state:
+			// set_desync and set_position (and set_buffer_scale on the child surface).
+			// This is safe at this point: GTK has already committed its initial state
+			// during window realization, so the parent's own pending state is empty —
+			// we are NOT attaching a new buffer to the parent, only triggering the
+			// subsurface state application.  Relying solely on QueueDraw() would leave
+			// the pending state unapplied until GTK's next async frame callback, which
+			// races with Veldrid's first present: the subsurface stays in sync mode,
+			// queued Vulkan commits are held by the compositor, and the viewport stays
+			// black for the entire session.
+			WaylandGlobals.wl_surface_commit(parentWlSurface);
+
+			// Block until the compositor has processed the commit.  After this returns,
+			// desync mode is active and the subsurface is at the correct position, so
+			// the first Veldrid frame will appear immediately on screen.
+			WaylandGlobals.RoundTrip(_wlDisplay);
 
 			_surfaceInfo = new WaylandSurfaceInfo(
 				_wlDisplay, _wlSurface, FindPreferredDrmRenderNode());

@@ -319,6 +319,17 @@ namespace Eto.GtkSharp
 				wl_display_flush(wlDisplay);
 		}
 
+		/// <summary>
+		/// Sends a <c>wl_display.sync</c> and blocks until the compositor has processed all
+		/// previously queued requests and sent back the done event.  Use this to guarantee
+		/// that committed subsurface state has been applied by the compositor before proceeding.
+		/// </summary>
+		internal static void RoundTrip(IntPtr wlDisplay)
+		{
+			if (wlDisplay != IntPtr.Zero)
+				wl_display_roundtrip(wlDisplay);
+		}
+
 		// ── registry listener callbacks ───────────────────────────────────────────
 
 		static void OnGlobal(IntPtr data, IntPtr registry, uint name, string iface, uint version)
