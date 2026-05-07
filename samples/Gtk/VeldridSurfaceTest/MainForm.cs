@@ -63,6 +63,7 @@ public class MainForm : Form
 {
     const int DiagnosticsHeartbeatIntervalFrames = 180;
     const int MinSurfaceInitDim = 4;
+    const int SurfaceViewportHeight = 220;
 
     // ── Veldrid objects ───────────────────────────────────────────────────────
     GraphicsDevice?   _gd;
@@ -196,6 +197,12 @@ public class MainForm : Form
 
         Closing += (_, _) => { _animTimer.Stop(); TeardownVeldrid(); };
         Closing += (_, _) => _diagnosticsTimer?.Stop();
+        Load += (_, _) => Application.Instance.AsyncInvoke(() =>
+        {
+            if (_diagnosticsEnabled)
+                LogSurfaceSpatialSnapshot("Load");
+            TryInitializeVeldridWhenReady("Load");
+        });
 
         // ── Buttons ──────────────────────────────────────────────────────────
         var btnToggleAnim  = new Button { Text = "Pause" };
@@ -241,7 +248,12 @@ public class MainForm : Form
                             Text = "Veldrid GPU Rendering  (VulkanSurface)",
                             Font = Fonts.Sans(9, FontStyle.Bold),
                         }),
-                        new TableRow(surface) { ScaleHeight = true },
+                        new TableRow(new GroupBox
+                        {
+                            Text = "Veldrid surface",
+                            Content = surface,
+                            Height = SurfaceViewportHeight,
+                        }) { ScaleHeight = true },
                     }
                 }) { ScaleHeight = true },
 
