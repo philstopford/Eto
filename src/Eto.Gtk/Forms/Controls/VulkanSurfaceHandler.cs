@@ -258,12 +258,21 @@ namespace Eto.GtkSharp.Forms.Controls
 
 			_deferredInitTimerHandle = GLib.Timeout.Add(DeferredInitRetryMs, () =>
 			{
-				_deferredInitTimerHandle = null;
 				if (_surfaceAlive)
+				{
+					_deferredInitTimerHandle = null;
 					return false;
+				}
 
 				TryInitializeSurfaceOrDefer("DeferredTimer");
-				return false;
+
+				if (_surfaceAlive)
+				{
+					_deferredInitTimerHandle = null;
+					return false;
+				}
+
+				return true;
 			});
 		}
 
