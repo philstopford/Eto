@@ -194,27 +194,12 @@ namespace Eto.GtkSharp.Forms.Controls
 			if (WaylandGlobals.Compositor == IntPtr.Zero || WaylandGlobals.Subcompositor == IntPtr.Zero)
 				return;
 
-			// Preferred path: use GTK's native child wl_surface when available.
-			// This avoids manual subsurface state management and lets GTK/compositor
-			// keep ownership of the child surface lifecycle.
-			if (Control.Window != null)
-			{
-				var controlWlSurface = NativeMethods.gdk_wayland_window_get_wl_surface(Control.Window.Handle);
-				if (controlWlSurface != IntPtr.Zero)
-				{
-					_wlSurface = controlWlSurface;
-					_wlSubsurface = IntPtr.Zero;
-					_ownsWlSurface = false;
-					Diag($"InitializeWayland: using GTK child wl_surface=0x{_wlSurface.ToInt64():X}");
-
-					_surfaceInfo = new WaylandSurfaceInfo(
-						_wlDisplay, _wlSurface, FindPreferredDrmRenderNode());
-
-					Control.SizeAllocated += HandleSizeAllocated;
-					FireSurfaceCreated();
-					return;
-				}
-			}
+			// On Wayland, we must NOT pass GTK's own wl_surface to Vulkan directly.
+			// vkCreateSwapchainKHR takes exclusive ownership of the wl_surface's buffer
+			// queue; any subsequent GTK commit to that same surface (damage, expose, etc.)
+			// causes a Wayland protocol violation → EPROTO (error 71).  The correct
+			// approach is to create our own wl_surface as a wl_subsurface of the GTK
+			// top-level window surface and hand that dedicated surface to Vulkan.
 
 			// Get the parent wl_surface from the top-level GDK window.
 			var topLevel = Control.Toplevel;
