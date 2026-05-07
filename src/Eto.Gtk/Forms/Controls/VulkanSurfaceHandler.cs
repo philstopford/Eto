@@ -33,7 +33,11 @@ namespace Eto.GtkSharp.Forms.Controls
 		bool _isWayland;
 		bool _surfaceAlive;
 		bool _renderQueued;      // coalesces Invalidate()-triggered renders
+		readonly bool _diagnosticsEnabled = DiagnosticsEnabled();
 		IVulkanSurfaceInfo _surfaceInfo;
+		bool _haveLastSubsurfacePosition;
+		int _lastSubsurfaceX;
+		int _lastSubsurfaceY;
 
 		// ── IHandler ─────────────────────────────────────────────────────────────
 
@@ -61,6 +65,7 @@ namespace Eto.GtkSharp.Forms.Controls
 		{
 			base.Initialize();
 			_isWayland = DetectWayland();
+			Diag($"Initialize: wayland={_isWayland} scale={Control.ScaleFactor} display='{Gdk.Display.Default?.Name ?? "<null>"}'");
 		}
 
 		/// <inheritdoc/>
@@ -144,6 +149,7 @@ namespace Eto.GtkSharp.Forms.Controls
 		{
 			if (_isWayland)
 				UpdateSubsurfacePosition();
+			Diag($"SizeAllocated: alloc={args.Allocation.Width}x{args.Allocation.Height} surfaceAlive={_surfaceAlive}");
 
 			// Defer rendering to outside GTK's layout/draw pass for the same reason
 			// as HandleDrawn: calling SwapBuffers from inside a GTK signal handler
@@ -165,6 +171,7 @@ namespace Eto.GtkSharp.Forms.Controls
 
 		void OnRealized()
 		{
+			Diag($"OnRealized: isWayland={_isWayland} controlWindow={Control.Window?.Handle ?? IntPtr.Zero}");
 			if (_isWayland)
 				InitializeWayland();
 			else
@@ -180,6 +187,7 @@ namespace Eto.GtkSharp.Forms.Controls
 			_wlDisplay = NativeMethods.gdk_wayland_display_get_wl_display(gdkDisplay.Handle);
 			if (_wlDisplay == IntPtr.Zero)
 				return;
+			Diag($"InitializeWayland: wl_display=0x{_wlDisplay.ToInt64():X}");
 
 			// Ensure we have the Wayland globals (idempotent).
 			WaylandGlobals.Initialize(_wlDisplay);
@@ -195,11 +203,13 @@ namespace Eto.GtkSharp.Forms.Controls
 			var parentWlSurface = NativeMethods.gdk_wayland_window_get_wl_surface(topLevel.Window.Handle);
 			if (parentWlSurface == IntPtr.Zero)
 				return;
+			Diag($"InitializeWayland: parent_wl_surface=0x{parentWlSurface.ToInt64():X}");
 
 			// Create our own wl_surface and make it a subsurface of the GTK window surface.
 			_wlSurface = WaylandGlobals.wl_compositor_create_surface(WaylandGlobals.Compositor);
 			if (_wlSurface == IntPtr.Zero)
 				return;
+			Diag($"InitializeWayland: child_wl_surface=0x{_wlSurface.ToInt64():X}");
 
 			_wlSubsurface = WaylandGlobals.wl_subcompositor_get_subsurface(
 				WaylandGlobals.Subcompositor, _wlSurface, parentWlSurface);
@@ -210,6 +220,7 @@ namespace Eto.GtkSharp.Forms.Controls
 				_wlSurface = IntPtr.Zero;
 				return;
 			}
+			Diag($"InitializeWayland: wl_subsurface=0x{_wlSubsurface.ToInt64():X}");
 
 			// Desync: Vulkan presents independently of GTK's render loop.
 			WaylandGlobals.wl_subsurface_set_desync(_wlSubsurface);
@@ -226,6 +237,7 @@ namespace Eto.GtkSharp.Forms.Controls
 			int backingScale = Control.ScaleFactor; // integer; 1 on standard-DPI, 2 on HiDPI
 			if (backingScale > 1)
 				WaylandGlobals.wl_surface_set_buffer_scale(_wlSurface, backingScale);
+			Diag($"InitializeWayland: bufferScale={backingScale}");
 
 			// Set initial position (pending until parent commits).
 			UpdateSubsurfacePosition();
@@ -241,11 +253,13 @@ namespace Eto.GtkSharp.Forms.Controls
 			// queued Vulkan commits are held by the compositor, and the viewport stays
 			// black for the entire session.
 			WaylandGlobals.wl_surface_commit(parentWlSurface);
+			Diag("InitializeWayland: parent commit submitted");
 
 			// Block until the compositor has processed the commit.  After this returns,
 			// desync mode is active and the subsurface is at the correct position, so
 			// the first Veldrid frame will appear immediately on screen.
 			WaylandGlobals.RoundTrip(_wlDisplay);
+			Diag("InitializeWayland: display roundtrip complete");
 
 			_surfaceInfo = new WaylandSurfaceInfo(
 				_wlDisplay, _wlSurface, FindPreferredDrmRenderNode());
@@ -270,6 +284,7 @@ namespace Eto.GtkSharp.Forms.Controls
 				return;
 
 			_surfaceInfo = new X11SurfaceInfo(_xDisplay, _xWindow);
+			Diag($"InitializeX11: xDisplay=0x{_xDisplay.ToInt64():X} xWindow=0x{_xWindow:X}");
 
 			Control.SizeAllocated += HandleSizeAllocated;
 			FireSurfaceCreated();
@@ -278,6 +293,7 @@ namespace Eto.GtkSharp.Forms.Controls
 		void FireSurfaceCreated()
 		{
 			_surfaceAlive = true;
+			Diag("FireSurfaceCreated");
 			Callback.OnSurfaceCreated(Widget, EventArgs.Empty);
 
 			// Defer the initial render to the next main-loop iteration, exactly
@@ -303,6 +319,7 @@ namespace Eto.GtkSharp.Forms.Controls
 
 		void TearDownSurface()
 		{
+			Diag("TearDownSurface begin");
 			if (_surfaceAlive)
 			{
 				_surfaceAlive = false;
@@ -316,11 +333,13 @@ namespace Eto.GtkSharp.Forms.Controls
 			if (_wlSubsurface != IntPtr.Zero)
 			{
 				WaylandGlobals.wl_subsurface_destroy(_wlSubsurface);
+				Diag("TearDownSurface: wl_subsurface destroyed");
 				_wlSubsurface = IntPtr.Zero;
 			}
 			if (_wlSurface != IntPtr.Zero)
 			{
 				WaylandGlobals.wl_surface_destroy(_wlSurface);
+				Diag("TearDownSurface: wl_surface destroyed");
 			}
 			_wlSurface = IntPtr.Zero;
 		}
@@ -341,9 +360,46 @@ namespace Eto.GtkSharp.Forms.Controls
 				// wl_subsurface.set_position takes logical-pixel coordinates; the position
 				// is applied to the parent's next commit (triggered by GTK rendering).
 				WaylandGlobals.wl_subsurface_set_position(_wlSubsurface, x, y);
+				if (!_haveLastSubsurfacePosition || _lastSubsurfaceX != x || _lastSubsurfaceY != y)
+				{
+					_haveLastSubsurfacePosition = true;
+					_lastSubsurfaceX = x;
+					_lastSubsurfaceY = y;
+					Diag($"UpdateSubsurfacePosition: x={x} y={y} topLevelSize={topLevel.AllocatedWidth}x{topLevel.AllocatedHeight} controlSize={Control.AllocatedWidth}x{Control.AllocatedHeight}");
+				}
 				// Do NOT commit _wlSurface here: an empty commit with no pending buffer or
 				// damage sent in desync mode causes some compositors (e.g. Mutter) to
 				// treat the surface as if it has no content, clearing the last Vulkan frame.
+			}
+			else
+			{
+				Diag("UpdateSubsurfacePosition: TranslateCoordinates failed");
+			}
+		}
+
+		static bool DiagnosticsEnabled()
+		{
+			var value = Environment.GetEnvironmentVariable("ETO_VELDRID_DIAGNOSTICS")
+				?? Environment.GetEnvironmentVariable("ETO_VULKAN_SURFACE_DIAGNOSTICS");
+			if (string.IsNullOrWhiteSpace(value))
+				return false;
+			return value == "1"
+				|| value.Equals("true", StringComparison.OrdinalIgnoreCase)
+				|| value.Equals("yes", StringComparison.OrdinalIgnoreCase)
+				|| value.Equals("on", StringComparison.OrdinalIgnoreCase);
+		}
+
+		void Diag(string message)
+		{
+			if (!_diagnosticsEnabled)
+				return;
+			try
+			{
+				Console.WriteLine($"[VulkanSurfaceHandler] {message}");
+			}
+			catch
+			{
+				// best-effort diagnostics only
 			}
 		}
 

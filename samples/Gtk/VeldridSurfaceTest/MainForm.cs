@@ -103,6 +103,9 @@ public class MainForm : Form
     DateTime _fpsEpoch  = DateTime.Now;
     long     _totalFrames;
     DateTime _lastRender = DateTime.Now;
+    readonly bool _diagnosticsEnabled = DiagnosticsEnabled();
+    UITimer? _diagnosticsTimer;
+    string? _lastSpatialSnapshot;
 
     // ── Status labels ─────────────────────────────────────────────────────────
     readonly Label _lblStatus  = new Label { Text = "Initialising…" };
@@ -145,6 +148,7 @@ public class MainForm : Form
         surface.SurfaceCreated   += (_, _) => OnSurfaceCreated(surface);
         surface.SurfaceDestroyed += (_, _) => OnSurfaceDestroyed();
         surface.Render           += (_, _) => OnVulkanRender(surface);
+        surface.SizeChanged      += (_, _) => LogSurfaceSpatialSnapshot("Surface.SizeChanged");
 
         // ── Backend selector ─────────────────────────────────────────────────
         _backendDrop = new DropDown();
@@ -181,6 +185,7 @@ public class MainForm : Form
         _animTimer.Start();
 
         Closing += (_, _) => { _animTimer.Stop(); TeardownVeldrid(); };
+        Closing += (_, _) => _diagnosticsTimer?.Stop();
 
         // ── Buttons ──────────────────────────────────────────────────────────
         var btnToggleAnim  = new Button { Text = "Pause" };
@@ -253,6 +258,12 @@ public class MainForm : Form
         Log("Waiting for VulkanSurface.SurfaceCreated …");
         Log("LMB drag: orbit  |  Scroll: zoom  |  RMB click: place marker");
         Log("Use the Backend dropdown to switch between Vulkan and OpenGL.");
+        if (_diagnosticsEnabled)
+        {
+            Log("Diagnostics enabled (ETO_VELDRID_DIAGNOSTICS=1) — logging spatial snapshots.");
+            StartDiagnosticsTimer();
+            LogSurfaceSpatialSnapshot("Startup");
+        }
     }
 
     // ── Backend hot-switching ─────────────────────────────────────────────────
@@ -299,6 +310,7 @@ public class MainForm : Form
 
         int scale = (int)surface.BackingScaleFactor;
         Log($"SurfaceCreated  type={info.SurfaceType}  size={surface.Size}  scale={scale}");
+        LogSurfaceSpatialSnapshot("SurfaceCreated");
         _surfaceInfo = info;
 
         InitializeVeldrid(info, surface);
@@ -527,6 +539,8 @@ public class MainForm : Form
 
         _totalFrames++;
         _lblFrames.Text = _totalFrames.ToString();
+        if (_diagnosticsEnabled && (_totalFrames % 180) == 0)
+            Log($"Render heartbeat  backend={_gd.BackendType}  frames={_totalFrames}  surface={surface.Size}  scale={(int)surface.BackingScaleFactor}");
 
         try
         {
@@ -540,6 +554,7 @@ public class MainForm : Form
 
     void OnSurfaceDestroyed()
     {
+        LogSurfaceSpatialSnapshot("SurfaceDestroyed");
         TeardownVeldrid();
         Log("SurfaceDestroyed — Veldrid resources disposed.");
         _lblStatus.Text  = "Surface destroyed";
@@ -755,6 +770,48 @@ public class MainForm : Form
     {
         var line = $"[{DateTime.Now:HH:mm:ss.fff}] {message}";
         Application.Instance.AsyncInvoke(() => _log.Text += line + "\n");
+    }
+
+    static bool DiagnosticsEnabled()
+    {
+        var value = Environment.GetEnvironmentVariable("ETO_VELDRID_DIAGNOSTICS");
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+        return value == "1"
+            || value.Equals("true", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("yes", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("on", StringComparison.OrdinalIgnoreCase);
+    }
+
+    void StartDiagnosticsTimer()
+    {
+        if (_diagnosticsTimer != null)
+            return;
+        _diagnosticsTimer = new UITimer { Interval = 1.0 };
+        _diagnosticsTimer.Elapsed += (_, _) => LogSurfaceSpatialSnapshot("Tick");
+        _diagnosticsTimer.Start();
+    }
+
+    void LogSurfaceSpatialSnapshot(string reason)
+    {
+        if (!_diagnosticsEnabled || _vulkanSurface == null)
+            return;
+
+        var surface = _vulkanSurface;
+        var parent = surface.Parent;
+        var root = ParentWindow;
+
+        var snapshot =
+            $"surface.bounds={surface.Bounds} size={surface.Size} visible={surface.Visible} enabled={surface.Enabled} " +
+            $"parent={parent?.GetType().Name ?? "<null>"} parent.bounds={(parent != null ? parent.Bounds.ToString() : "<null>")} " +
+            $"window.client={ClientSize} window.bounds={Bounds} parentWindow={(root != null ? root.Bounds.ToString() : "<null>")} " +
+            $"backend={_gd?.BackendType.ToString() ?? "<none>"}";
+
+        if (snapshot == _lastSpatialSnapshot && reason == "Tick")
+            return;
+
+        _lastSpatialSnapshot = snapshot;
+        Log($"[Diag:{reason}] {snapshot}");
     }
 
     static string FormatPtr(IntPtr ptr) =>
