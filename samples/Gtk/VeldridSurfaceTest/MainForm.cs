@@ -64,6 +64,7 @@ public class MainForm : Form
     const int DiagnosticsHeartbeatIntervalFrames = 180;
     const int MinSurfaceInitDim = 4;
     const int SurfaceViewportHeight = 220;
+    const double InitRetryIntervalSeconds = 0.25;
 
     // ── Veldrid objects ───────────────────────────────────────────────────────
     GraphicsDevice?   _gd;
@@ -114,6 +115,7 @@ public class MainForm : Form
     UITimer? _diagnosticsTimer;
     string? _lastSpatialSnapshot;
     string? _lastInitDeferralSnapshot;
+    DateTime _lastInitAttempt;
 
     // ── Status labels ─────────────────────────────────────────────────────────
     readonly Label _lblStatus  = new Label { Text = "Initialising…" };
@@ -178,8 +180,11 @@ public class MainForm : Form
         _animTimer = new UITimer { Interval = 1.0 / 60.0 };
         _animTimer.Elapsed += (_, _) =>
         {
-            if (_gd == null)
+            if (_gd == null && (DateTime.Now - _lastInitAttempt).TotalSeconds >= InitRetryIntervalSeconds)
+            {
+                _lastInitAttempt = DateTime.Now;
                 TryInitializeVeldridWhenReady("Timer");
+            }
 
             if (!_paused)
             {
