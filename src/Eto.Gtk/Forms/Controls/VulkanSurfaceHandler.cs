@@ -24,6 +24,7 @@ namespace Eto.GtkSharp.Forms.Controls
 		IntPtr _wlDisplay;
 		IntPtr _wlSurface;      // our created wl_surface*
 		IntPtr _wlSubsurface;   // our wl_subsurface*
+		bool _ownsWlSurface;    // true only when we created _wlSurface ourselves
 
 		// ── X11 state ─────────────────────────────────────────────────────────────
 		IntPtr _xDisplay;
@@ -193,6 +194,28 @@ namespace Eto.GtkSharp.Forms.Controls
 			if (WaylandGlobals.Compositor == IntPtr.Zero || WaylandGlobals.Subcompositor == IntPtr.Zero)
 				return;
 
+			// Preferred path: use GTK's native child wl_surface when available.
+			// This avoids manual subsurface state management and lets GTK/compositor
+			// keep ownership of the child surface lifecycle.
+			if (Control.Window != null)
+			{
+				var controlWlSurface = NativeMethods.gdk_wayland_window_get_wl_surface(Control.Window.Handle);
+				if (controlWlSurface != IntPtr.Zero)
+				{
+					_wlSurface = controlWlSurface;
+					_wlSubsurface = IntPtr.Zero;
+					_ownsWlSurface = false;
+					Diag($"InitializeWayland: using GTK child wl_surface=0x{_wlSurface.ToInt64():X}");
+
+					_surfaceInfo = new WaylandSurfaceInfo(
+						_wlDisplay, _wlSurface, FindPreferredDrmRenderNode());
+
+					Control.SizeAllocated += HandleSizeAllocated;
+					FireSurfaceCreated();
+					return;
+				}
+			}
+
 			// Get the parent wl_surface from the top-level GDK window.
 			var topLevel = Control.Toplevel;
 			if (topLevel?.Window == null)
@@ -207,6 +230,7 @@ namespace Eto.GtkSharp.Forms.Controls
 			_wlSurface = WaylandGlobals.wl_compositor_create_surface(WaylandGlobals.Compositor);
 			if (_wlSurface == IntPtr.Zero)
 				return;
+			_ownsWlSurface = true;
 			Diag($"InitializeWayland: child_wl_surface=0x{_wlSurface.ToInt64():X}");
 
 			_wlSubsurface = WaylandGlobals.wl_subcompositor_get_subsurface(
@@ -216,6 +240,7 @@ namespace Eto.GtkSharp.Forms.Controls
 			{
 				WaylandGlobals.wl_surface_destroy(_wlSurface);
 				_wlSurface = IntPtr.Zero;
+				_ownsWlSurface = false;
 				return;
 			}
 			Diag($"InitializeWayland: wl_subsurface=0x{_wlSubsurface.ToInt64():X}");
@@ -346,10 +371,18 @@ namespace Eto.GtkSharp.Forms.Controls
 			}
 			if (_wlSurface != IntPtr.Zero)
 			{
-				WaylandGlobals.wl_surface_destroy(_wlSurface);
-				Diag("TearDownSurface: wl_surface destroyed");
+				if (_ownsWlSurface)
+				{
+					WaylandGlobals.wl_surface_destroy(_wlSurface);
+					Diag("TearDownSurface: wl_surface destroyed");
+				}
+				else
+				{
+					Diag("TearDownSurface: GTK-owned wl_surface left intact");
+				}
 			}
 			_wlSurface = IntPtr.Zero;
+			_ownsWlSurface = false;
 		}
 
 		// ── helpers ───────────────────────────────────────────────────────────────
