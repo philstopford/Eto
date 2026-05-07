@@ -115,6 +115,7 @@ public class MainForm : Form
     UITimer? _diagnosticsTimer;
     string? _lastSpatialSnapshot;
     string? _lastInitDeferralSnapshot;
+    string? _lastSurfaceInfoWaitSnapshot;
     DateTime _lastInitAttempt;
     bool _loggedNoRendererOnRender;
 
@@ -353,8 +354,28 @@ public class MainForm : Form
 
     void TryInitializeVeldridWhenReady(string reason)
     {
-        if (_gd != null || _surfaceInfo == null || _vulkanSurface == null)
+        if (_gd != null || _vulkanSurface == null)
             return;
+
+        if (_surfaceInfo == null)
+        {
+            var probedInfo = _vulkanSurface.GetSurfaceInfo();
+            if (probedInfo == null)
+            {
+                var waitSnapshot = $"{_vulkanSurface.Size}:{_vulkanSurface.BackingScaleFactor}";
+                if (!string.Equals(waitSnapshot, _lastSurfaceInfoWaitSnapshot, StringComparison.Ordinal))
+                {
+                    _lastSurfaceInfoWaitSnapshot = waitSnapshot;
+                    Log($"Still waiting for Vulkan surface info ({reason}) size={_vulkanSurface.Size} scale={(int)_vulkanSurface.BackingScaleFactor}");
+                }
+                return;
+            }
+
+            _lastSurfaceInfoWaitSnapshot = null;
+            _surfaceInfo = probedInfo;
+            Log($"Recovered surface info via probe ({reason}) type={_surfaceInfo.SurfaceType}");
+            LogSurfaceSpatialSnapshot("SurfaceInfoProbe");
+        }
 
         int scale = (int)_vulkanSurface.BackingScaleFactor;
         int w = _vulkanSurface.Width * scale;
