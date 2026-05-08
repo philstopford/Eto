@@ -534,6 +534,11 @@ namespace Eto.GtkSharp
 			[DllImport(libgdk, CallingConvention = CallingConvention.Cdecl)]
 			public extern static ulong gdk_x11_window_get_xid(IntPtr window);
 
+			// Returns the CSD shadow margins of a GtkWindow (available since GTK 3.22).
+			[DllImport(libgtk, CallingConvention = CallingConvention.Cdecl)]
+			public extern static void gtk_window_get_shadow_width(
+				IntPtr window, out int left, out int right, out int top, out int bottom);
+
 			[DllImport(libpango, CallingConvention = CallingConvention.Cdecl)]
 			public extern static bool pango_font_has_char(IntPtr font, int wc);
 			[DllImport(libpangocairo, CallingConvention = CallingConvention.Cdecl)]
@@ -1556,5 +1561,29 @@ namespace Eto.GtkSharp
 
 		public static ulong gdk_x11_window_get_xid(IntPtr window)
 			=> NMLinux.gdk_x11_window_get_xid(window);
+
+		/// <summary>
+		/// Returns the CSD shadow margins for a GtkWindow via <c>gtk_window_get_shadow_width</c>
+		/// (available since GTK 3.22).  Returns all zeros when the function is unavailable
+		/// (older GTK) or the window has no CSD shadow.
+		/// </summary>
+		public static void gtk_window_get_shadow_width(IntPtr window,
+			out int left, out int right, out int top, out int bottom)
+		{
+			try
+			{
+				NMLinux.gtk_window_get_shadow_width(window, out left, out right, out top, out bottom);
+			}
+			catch (EntryPointNotFoundException)
+			{
+				// gtk_window_get_shadow_width was added in GTK 3.22; treat as no shadow on
+				// older versions.
+				left = right = top = bottom = 0;
+			}
+			catch (DllNotFoundException)
+			{
+				left = right = top = bottom = 0;
+			}
+		}
 	}
 }

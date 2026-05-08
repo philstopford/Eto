@@ -301,18 +301,27 @@ namespace Eto.GtkSharp.Forms.Controls
 		{
 			var gdkDisplay = Gdk.Display.Default;
 			if (gdkDisplay == null)
+			{
+				Diag("InitializeWayland: no GDK display — aborting");
 				return;
+			}
 
 			_wlDisplay = NativeMethods.gdk_wayland_display_get_wl_display(gdkDisplay.Handle);
 			if (_wlDisplay == IntPtr.Zero)
+			{
+				Diag("InitializeWayland: gdk_wayland_display_get_wl_display returned null — not a Wayland GDK session");
 				return;
+			}
 			Diag($"InitializeWayland: wl_display=0x{_wlDisplay.ToInt64():X}");
 
 			// Ensure we have the Wayland globals (idempotent).
 			WaylandGlobals.Initialize(_wlDisplay);
 
 			if (WaylandGlobals.Compositor == IntPtr.Zero || WaylandGlobals.Subcompositor == IntPtr.Zero)
+			{
+				Diag($"InitializeWayland: missing Wayland globals compositor=0x{WaylandGlobals.Compositor.ToInt64():X} subcompositor=0x{WaylandGlobals.Subcompositor.ToInt64():X} — aborting");
 				return;
+			}
 
 			// On Wayland, we must NOT pass GTK's own wl_surface to Vulkan directly.
 			// vkCreateSwapchainKHR takes exclusive ownership of the wl_surface's buffer
@@ -324,18 +333,27 @@ namespace Eto.GtkSharp.Forms.Controls
 			// Get the parent wl_surface from the top-level GDK window.
 			var topLevel = Control.Toplevel;
 			if (topLevel?.Window == null)
+			{
+				Diag("InitializeWayland: toplevel GDK window not yet available — will retry");
 				return;
+			}
 
 			var parentWlSurface = NativeMethods.gdk_wayland_window_get_wl_surface(topLevel.Window.Handle);
 			if (parentWlSurface == IntPtr.Zero)
+			{
+				Diag("InitializeWayland: gdk_wayland_window_get_wl_surface returned null — window not yet mapped; will retry");
 				return;
+			}
 			_wlParentSurface = parentWlSurface;
 			Diag($"InitializeWayland: parent_wl_surface=0x{parentWlSurface.ToInt64():X}");
 
 			// Create our own wl_surface and make it a subsurface of the GTK window surface.
 			_wlSurface = WaylandGlobals.wl_compositor_create_surface(WaylandGlobals.Compositor);
 			if (_wlSurface == IntPtr.Zero)
+			{
+				Diag("InitializeWayland: wl_compositor_create_surface failed — aborting");
 				return;
+			}
 			_ownsWlSurface = true;
 			Diag($"InitializeWayland: child_wl_surface=0x{_wlSurface.ToInt64():X}");
 
@@ -344,6 +362,7 @@ namespace Eto.GtkSharp.Forms.Controls
 
 			if (_wlSubsurface == IntPtr.Zero)
 			{
+				Diag("InitializeWayland: wl_subcompositor_get_subsurface failed — aborting");
 				WaylandGlobals.wl_surface_destroy(_wlSurface);
 				_wlSurface = IntPtr.Zero;
 				_ownsWlSurface = false;
@@ -352,7 +371,15 @@ namespace Eto.GtkSharp.Forms.Controls
 			Diag($"InitializeWayland: wl_subsurface=0x{_wlSubsurface.ToInt64():X}");
 
 			// Desync: Vulkan presents independently of GTK's render loop.
+			// Per the Wayland protocol, set_desync takes effect "on the next explicit
+			// commit to the sub-surface itself", so we must commit the child surface
+			// (with no buffer) to lock in desync mode *before* the parent commit below.
+			// This guarantees the subsurface is in desync mode for the very first Vulkan
+			// present; without it the first vkQueuePresentKHR must simultaneously switch
+			// mode AND attach a buffer, which some compositors do not handle reliably.
 			WaylandGlobals.wl_subsurface_set_desync(_wlSubsurface);
+			WaylandGlobals.wl_surface_commit(_wlSurface);  // empty commit — activates desync
+			Diag("InitializeWayland: child surface committed (desync activated)");
 
 			// Explicitly place the Vulkan subsurface above the parent surface.  Some
 			// compositor/GTK combinations keep the newly created subsurface effectively
@@ -372,7 +399,7 @@ namespace Eto.GtkSharp.Forms.Controls
 			UpdateSubsurfacePosition();
 
 			// Commit the parent surface NOW to apply all pending subsurface state:
-			// set_desync and set_position (and set_buffer_scale on the child surface).
+			// set_desync (via the child commit above) and set_position.
 			// This is safe at this point: GTK has already committed its initial state
 			// during window realization, so the parent's own pending state is empty —
 			// we are NOT attaching a new buffer to the parent, only triggering the
@@ -496,6 +523,30 @@ namespace Eto.GtkSharp.Forms.Controls
 
 			if (Control.TranslateCoordinates(topLevel, 0, 0, out int x, out int y))
 			{
+				// TranslateCoordinates returns coordinates in the GtkWindow *widget* space.
+				// On GTK3 with CSD (client-side decorations), the GtkWindow widget is inset
+				// from the GdkWindow's origin by the shadow margin — the GdkWindow is larger
+				// than the visible window to accommodate the drop-shadow border drawn outside
+				// the widget area.  wl_subsurface_set_position needs coordinates relative to
+				// the *GdkWindow* (= parent wl_surface) origin, so we must add the shadow
+				// margin to the widget-space result.  Without this correction the subsurface
+				// lands in the invisible shadow region and the DrawingArea shows black GTK
+				// background instead of Vulkan content.
+				if (topLevel is Gtk.Window gtkWin)
+				{
+					// Only the left and top margins affect the origin offset used by
+					// wl_subsurface_set_position; right and bottom determine the overall
+					// GdkWindow size but do not shift the (0,0) origin.
+					NativeMethods.gtk_window_get_shadow_width(gtkWin.Handle,
+						out int shadowLeft, out int _, out int shadowTop, out int _);
+					if (shadowLeft != 0 || shadowTop != 0)
+					{
+						Diag($"UpdateSubsurfacePosition: CSD shadow left={shadowLeft} top={shadowTop}; adjusting widget ({x},{y}) → gdkWindow ({x + shadowLeft},{y + shadowTop})");
+						x += shadowLeft;
+						y += shadowTop;
+					}
+				}
+
 				// wl_subsurface.set_position takes logical-pixel coordinates; the position
 				// is applied to the parent's next commit (triggered by GTK rendering).
 				WaylandGlobals.wl_subsurface_set_position(_wlSubsurface, x, y);
