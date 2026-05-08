@@ -556,6 +556,7 @@ public class NodeGraphView : Drawable
 
 	// ── Group-box & waypoint constants ───────────────────────────────────────────
 	private const float BoxHeaderHeight  = 24f;   // height of the title band on a group box
+	private const float MinBoxBodyHeight = 20f;   // minimum body height below the header band
 	private const float WaypointRadius   = 5f;    // drawn circle radius for a wire-pin handle
 	private const float WaypointHitRadius = 10f;  // click / drag hit-test radius for wire-pin handles
 	private const float MinBoxCreateSize = 40f;   // rubber-band must exceed this in both axes
@@ -625,6 +626,9 @@ public class NodeGraphView : Drawable
 	// For each dragged node: which boxes fully contained it before the drag started?
 	private Dictionary<NodeItem, List<NodeGroupBox>> _dragNodeBoxMemberships;
 
+	// ── Monotonically increasing counter for default bookmark names ───────────────
+	private int _bookmarkAutoNameIndex;
+
 	// ── Public API ──────────────────────────────────────────────────────────────
 
 	/// <summary>Gets or sets the graph data model displayed by the control.</summary>
@@ -692,7 +696,7 @@ public class NodeGraphView : Drawable
 		if (_graph == null) return null;
 		var bm = new GraphBookmark
 		{
-			Name   = name ?? $"Bookmark {_graph.Bookmarks.Count + 1}",
+			Name   = name ?? $"Bookmark {++_bookmarkAutoNameIndex}",
 			Offset = _offset,
 			Zoom   = _zoom,
 		};
@@ -713,6 +717,12 @@ public class NodeGraphView : Drawable
 
 	/// <summary>Gets the group box that is currently selected, or <c>null</c>.</summary>
 	public NodeGroupBox SelectedGroupBox => _selectedBox;
+
+	// ── Internal helpers ─────────────────────────────────────────────────────────
+
+	/// <summary>Clears the group-box selection without triggering an additional repaint
+	/// (the caller is expected to call Invalidate as part of a larger update).</summary>
+	private void ClearBoxSelection() => _selectedBox = null;
 
 	/// <summary>
 	/// Re-computes the layout for <paramref name="node"/> and redraws the canvas.
@@ -1566,7 +1576,7 @@ public class NodeGraphView : Drawable
 			var socket = HitTestSocket(e.Location);
 			if (socket != null)
 			{
-				_selectedBox = null;
+				ClearBoxSelection();
 				if (socket.Direction == NodeSocketDirection.Output)
 				{
 					_connectingFrom   = socket;
@@ -1626,7 +1636,7 @@ public class NodeGraphView : Drawable
 			var node = HitTestNode(e.Location);
 			if (node != null)
 			{
-				_selectedBox = null;
+				ClearBoxSelection();
 
 				// Selection
 				if (!e.Modifiers.HasFlag(Keys.Shift) && !_selection.Contains(node))
@@ -1694,7 +1704,7 @@ public class NodeGraphView : Drawable
 			}
 
 			// ── Deselect ─────────────────────────────────────────────────────────
-			_selectedBox = null;
+			ClearBoxSelection();
 			_selection.Clear();
 			SelectionChanged?.Invoke(this, new NodeItemEventArgs(null));
 			Invalidate();
@@ -1839,8 +1849,8 @@ public class NodeGraphView : Drawable
 			var r = GetDrawingBoxRect();
 			if (r.Width >= MinBoxCreateSize && r.Height >= MinBoxCreateSize && _graph != null)
 			{
-				// Ensure the box is always tall enough to show its header
-				float minH = BoxHeaderHeight + 20f;
+				// Ensure the box is always tall enough to show its header plus some body space
+				float minH = BoxHeaderHeight + MinBoxBodyHeight;
 				if (r.Height < minH)
 					r = new RectangleF(r.X, r.Y, r.Width, minH);
 				var box = new NodeGroupBox { Bounds = r };
@@ -2318,7 +2328,7 @@ public class BookmarkPanel : Panel
 	private sealed class BookmarkListItem : IListItem
 	{
 		public GraphBookmark Bookmark { get; }
-		public string Text { get => Bookmark.Name; set { } }
+		public string Text { get => Bookmark.Name; set => Bookmark.Name = value; }
 		public string Key  => null;
 		public BookmarkListItem(GraphBookmark bm) => Bookmark = bm;
 	}
