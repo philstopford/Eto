@@ -229,6 +229,18 @@ public class NodeConnection
 		Source = source;
 		Target = target;
 	}
+
+	/// <summary>
+	/// Ordered intermediate waypoints in graph space used to route the wire around
+	/// other nodes.  When empty the wire renders as a direct cubic bezier.
+	/// When non-empty the wire threads through each waypoint in order.
+	/// <para>
+	/// <b>To add a waypoint:</b> hold Ctrl and left-click on the wire.<br/>
+	/// <b>To move a waypoint:</b> drag its circular handle.<br/>
+	/// <b>To remove a waypoint:</b> right-click its circular handle.
+	/// </para>
+	/// </summary>
+	public List<PointF> WayPoints { get; } = new List<PointF>();
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -254,6 +266,102 @@ public class NodeItemEventArgs : EventArgs
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
+//  GraphBookmark
+
+/// <summary>
+/// A named camera snapshot that the user can jump back to at any time.
+/// Stores the <see cref="NodeGraphView.Offset"/> and <see cref="NodeGraphView.Zoom"/>
+/// that were active when the bookmark was created.
+/// </summary>
+/// <remarks>
+/// Add a bookmark by pressing <b>Ctrl+B</b> or calling
+/// <see cref="NodeGraphView.AddBookmark"/>.  Use a <see cref="BookmarkPanel"/> to list,
+/// navigate and delete bookmarks interactively.
+/// </remarks>
+public class GraphBookmark
+{
+	/// <summary>Unique identifier – stable across renames, suitable for serialisation.</summary>
+	public string Id { get; } = Guid.NewGuid().ToString("N");
+
+	/// <summary>Display name shown in the bookmark list.</summary>
+	public string Name { get; set; } = "Bookmark";
+
+	/// <summary>Canvas pan offset (<see cref="NodeGraphView.Offset"/>) to restore.</summary>
+	public PointF Offset { get; set; }
+
+	/// <summary>Zoom level (<see cref="NodeGraphView.Zoom"/>) to restore.</summary>
+	public float Zoom { get; set; } = 1f;
+
+	/// <summary>Arbitrary user-defined data.</summary>
+	public object Tag { get; set; }
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+//  NodeGroupBox
+
+/// <summary>
+/// A resizable, titled rectangle drawn behind nodes for visual organisation.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Create</b> a group box by holding <b>Ctrl</b> and dragging on empty canvas space.
+/// </para>
+/// <para>
+/// <b>Move</b> a box by dragging its title header.  All nodes whose bounds are
+/// <em>fully</em> contained within the box at the time the drag starts are moved
+/// along with the box.
+/// </para>
+/// <para>
+/// When a contained node is later dragged <em>partially</em> outside the box the
+/// box automatically <b>expands</b> to keep the node contained.
+/// When a node is dragged <em>completely</em> outside the box it simply leaves,
+/// leaving the box unchanged.
+/// </para>
+/// <para>
+/// Press <b>Delete / Backspace</b> while a box is selected to remove it (its
+/// member nodes are not affected).
+/// </para>
+/// </remarks>
+public class NodeGroupBox
+{
+	/// <summary>Unique identifier – stable across renames, suitable for serialisation.</summary>
+	public string Id { get; } = Guid.NewGuid().ToString("N");
+
+	/// <summary>Display title shown in the box header band.</summary>
+	public string Title { get; set; } = "Group";
+
+	/// <summary>Accent colour used for the border and header.</summary>
+	public Color Color { get; set; } = Color.FromRgb(0x4A90D9);
+
+	/// <summary>Position and size of the box in graph space.</summary>
+	public RectangleF Bounds { get; set; }
+
+	/// <summary>Arbitrary user-defined data.</summary>
+	public object Tag { get; set; }
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+//  New event-arg types
+
+/// <summary>Event arguments carrying a <see cref="GraphBookmark"/>.</summary>
+public class GraphBookmarkEventArgs : EventArgs
+{
+	/// <summary>Gets the bookmark involved in the event.</summary>
+	public GraphBookmark Bookmark { get; }
+	/// <summary>Initializes a new instance.</summary>
+	public GraphBookmarkEventArgs(GraphBookmark bookmark) => Bookmark = bookmark;
+}
+
+/// <summary>Event arguments carrying a <see cref="NodeGroupBox"/>.</summary>
+public class NodeGroupBoxEventArgs : EventArgs
+{
+	/// <summary>Gets the group box involved in the event.</summary>
+	public NodeGroupBox GroupBox { get; }
+	/// <summary>Initializes a new instance.</summary>
+	public NodeGroupBoxEventArgs(NodeGroupBox groupBox) => GroupBox = groupBox;
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
 
 /// <summary>
 /// Represents the data model for a node graph: a collection of <see cref="NodeItem"/>s
@@ -267,6 +375,12 @@ public class NodeGraph
 	/// <summary>Gets all active connections in the graph.</summary>
 	public List<NodeConnection> Connections { get; } = new List<NodeConnection>();
 
+	/// <summary>Gets all camera bookmarks in the graph.</summary>
+	public List<GraphBookmark> Bookmarks { get; } = new List<GraphBookmark>();
+
+	/// <summary>Gets all group boxes in the graph.</summary>
+	public List<NodeGroupBox> GroupBoxes { get; } = new List<NodeGroupBox>();
+
 	/// <summary>Raised after a connection is added.</summary>
 	public event EventHandler<NodeConnectionEventArgs> ConnectionAdded;
 
@@ -278,6 +392,18 @@ public class NodeGraph
 
 	/// <summary>Raised after a node is removed.</summary>
 	public event EventHandler<NodeItemEventArgs> NodeRemoved;
+
+	/// <summary>Raised after a bookmark is added.</summary>
+	public event EventHandler<GraphBookmarkEventArgs> BookmarkAdded;
+
+	/// <summary>Raised after a bookmark is removed.</summary>
+	public event EventHandler<GraphBookmarkEventArgs> BookmarkRemoved;
+
+	/// <summary>Raised after a group box is added.</summary>
+	public event EventHandler<NodeGroupBoxEventArgs> GroupBoxAdded;
+
+	/// <summary>Raised after a group box is removed.</summary>
+	public event EventHandler<NodeGroupBoxEventArgs> GroupBoxRemoved;
 
 	/// <summary>Adds a node to the graph and raises <see cref="NodeAdded"/>.</summary>
 	public NodeItem AddNode(NodeItem node)
@@ -336,6 +462,40 @@ public class NodeGraph
 		InternalRemove(connection);
 	}
 
+	/// <summary>Adds <paramref name="bookmark"/> to the graph and raises <see cref="BookmarkAdded"/>.</summary>
+	public GraphBookmark AddBookmark(GraphBookmark bookmark)
+	{
+		if (bookmark == null) throw new ArgumentNullException(nameof(bookmark));
+		Bookmarks.Add(bookmark);
+		BookmarkAdded?.Invoke(this, new GraphBookmarkEventArgs(bookmark));
+		return bookmark;
+	}
+
+	/// <summary>Removes <paramref name="bookmark"/> from the graph and raises <see cref="BookmarkRemoved"/>.</summary>
+	public void RemoveBookmark(GraphBookmark bookmark)
+	{
+		if (bookmark == null || !Bookmarks.Contains(bookmark)) return;
+		Bookmarks.Remove(bookmark);
+		BookmarkRemoved?.Invoke(this, new GraphBookmarkEventArgs(bookmark));
+	}
+
+	/// <summary>Adds <paramref name="box"/> to the graph and raises <see cref="GroupBoxAdded"/>.</summary>
+	public NodeGroupBox AddGroupBox(NodeGroupBox box)
+	{
+		if (box == null) throw new ArgumentNullException(nameof(box));
+		GroupBoxes.Add(box);
+		GroupBoxAdded?.Invoke(this, new NodeGroupBoxEventArgs(box));
+		return box;
+	}
+
+	/// <summary>Removes <paramref name="box"/> from the graph and raises <see cref="GroupBoxRemoved"/>.</summary>
+	public void RemoveGroupBox(NodeGroupBox box)
+	{
+		if (box == null || !GroupBoxes.Contains(box)) return;
+		GroupBoxes.Remove(box);
+		GroupBoxRemoved?.Invoke(this, new NodeGroupBoxEventArgs(box));
+	}
+
 	private void InternalRemove(NodeConnection connection)
 	{
 		connection.Source.Connections.Remove(connection);
@@ -357,9 +517,12 @@ public class NodeGraph
 ///   <item>Drag nodes to reposition them (Shift+click for multi-select).</item>
 ///   <item>Left-drag from an output socket to an input socket to create a connection.</item>
 ///   <item>Left-drag from a connected input socket to re-route its connection.</item>
-///   <item>Right-click a connection to delete it; Delete/Backspace removes selected nodes.</item>
+///   <item>Right-click a connection to delete it; Delete/Backspace removes selected nodes/boxes.</item>
 ///   <item>Mouse-wheel to zoom; middle-mouse-drag (or Alt+left-drag) to pan.</item>
 ///   <item>Press F to frame all nodes; Ctrl+A to select all nodes.</item>
+///   <item><b>Bookmarks:</b> Ctrl+B to add a bookmark at the current camera position; use <see cref="BookmarkPanel"/> to navigate and delete.</item>
+///   <item><b>Wire pins:</b> Ctrl+left-click a wire to insert a waypoint; drag waypoints to reroute; right-click a waypoint to remove it.</item>
+///   <item><b>Group boxes:</b> Ctrl+drag on empty canvas to draw a new box; drag a box header to move the box and its enclosed nodes; Delete removes a selected box.</item>
 /// </list>
 /// </para>
 /// <para>
@@ -390,6 +553,12 @@ public class NodeGraphView : Drawable
 	private const float MinimapHeight   = 140f;
 	private const float MinimapMargin   = 12f;   // gap from the canvas edge
 	private const float MinimapPadding  = 6f;    // inner padding inside the minimap frame
+
+	// ── Group-box & waypoint constants ───────────────────────────────────────────
+	private const float BoxHeaderHeight  = 24f;   // height of the title band on a group box
+	private const float WaypointRadius   = 5f;    // drawn circle radius for a wire-pin handle
+	private const float WaypointHitRadius = 10f;  // click / drag hit-test radius for wire-pin handles
+	private const float MinBoxCreateSize = 40f;   // rubber-band must exceed this in both axes
 
 	// ── Display colors ──────────────────────────────────────────────────────────
 	private static readonly Color s_canvasColor        = Color.FromRgb(0x1E1E2E);
@@ -432,6 +601,29 @@ public class NodeGraphView : Drawable
 
 	// ── Minimap state ────────────────────────────────────────────────────────────
 	private bool   _minimapDragging;
+
+	// ── Group-box interaction ────────────────────────────────────────────────────
+	private NodeGroupBox                        _selectedBox;
+	private NodeGroupBox                        _dragBox;
+	private PointF                              _dragBoxMouseStart;
+	private RectangleF                          _dragBoxOrigBounds;
+	private List<(NodeItem node, PointF start)> _dragBoxNodeStarts;
+
+	// rubber-band new-box creation (Ctrl+drag on empty canvas)
+	private bool   _drawingBox;
+	private PointF _drawBoxAnchor;    // graph-space corner where the drag began
+	private PointF _drawBoxCurrent;   // graph-space current mouse position
+
+	// ── Wire-pin (waypoint) interaction ──────────────────────────────────────────
+	private bool           _draggingPin;
+	private NodeConnection _dragPinConn;
+	private int            _dragPinIdx;
+	private PointF         _dragPinStart;       // graph-space position at drag start
+	private PointF         _dragPinMouseStart;  // view-space mouse position at drag start
+
+	// ── Node-drag / box-membership tracking ──────────────────────────────────────
+	// For each dragged node: which boxes fully contained it before the drag started?
+	private Dictionary<NodeItem, List<NodeGroupBox>> _dragNodeBoxMemberships;
 
 	// ── Public API ──────────────────────────────────────────────────────────────
 
@@ -488,6 +680,41 @@ public class NodeGraphView : Drawable
 	public bool ShowMinimap { get; set; } = true;
 
 	/// <summary>
+	/// Creates a bookmark from the current camera position and zoom level and adds it to
+	/// <see cref="Graph"/>.  Returns <c>null</c> when no graph is set.
+	/// </summary>
+	/// <param name="name">
+	/// Display name for the new bookmark.
+	/// Defaults to <c>"Bookmark N"</c> where N is the one-based bookmark count.
+	/// </param>
+	public GraphBookmark AddBookmark(string name = null)
+	{
+		if (_graph == null) return null;
+		var bm = new GraphBookmark
+		{
+			Name   = name ?? $"Bookmark {_graph.Bookmarks.Count + 1}",
+			Offset = _offset,
+			Zoom   = _zoom,
+		};
+		return _graph.AddBookmark(bm);
+	}
+
+	/// <summary>
+	/// Restores the camera offset and zoom stored in <paramref name="bookmark"/>.
+	/// Does nothing when <paramref name="bookmark"/> is <c>null</c>.
+	/// </summary>
+	public void JumpToBookmark(GraphBookmark bookmark)
+	{
+		if (bookmark == null) return;
+		_offset = bookmark.Offset;
+		_zoom   = bookmark.Zoom;
+		Invalidate();
+	}
+
+	/// <summary>Gets the group box that is currently selected, or <c>null</c>.</summary>
+	public NodeGroupBox SelectedGroupBox => _selectedBox;
+
+	/// <summary>
 	/// Re-computes the layout for <paramref name="node"/> and redraws the canvas.
 	/// Call this after toggling <see cref="NodeSocket.IsPinned"/> on any of the node's sockets
 	/// so that the canvas immediately reflects the change.
@@ -518,6 +745,10 @@ public class NodeGraphView : Drawable
 		_graph.ConnectionRemoved += OnGraphChanged;
 		_graph.NodeAdded         += OnGraphChanged;
 		_graph.NodeRemoved       += OnGraphChanged;
+		_graph.BookmarkAdded     += OnGraphChanged;
+		_graph.BookmarkRemoved   += OnGraphChanged;
+		_graph.GroupBoxAdded     += OnGraphChanged;
+		_graph.GroupBoxRemoved   += OnGraphChanged;
 	}
 
 	private void UnsubscribeGraph()
@@ -527,6 +758,10 @@ public class NodeGraphView : Drawable
 		_graph.ConnectionRemoved -= OnGraphChanged;
 		_graph.NodeAdded         -= OnGraphChanged;
 		_graph.NodeRemoved       -= OnGraphChanged;
+		_graph.BookmarkAdded     -= OnGraphChanged;
+		_graph.BookmarkRemoved   -= OnGraphChanged;
+		_graph.GroupBoxAdded     -= OnGraphChanged;
+		_graph.GroupBoxRemoved   -= OnGraphChanged;
 	}
 
 	private void OnGraphChanged(object sender, EventArgs e)
@@ -636,21 +871,154 @@ public class NodeGraphView : Drawable
 		return null;
 	}
 
-	private bool BezierContains(NodeConnection conn, PointF gp, float threshold)
+	/// <summary>
+	/// Returns the group box whose title-header band contains <paramref name="viewPoint"/>,
+	/// or <c>null</c>.  Checked in reverse order so boxes drawn later (on top) win.
+	/// </summary>
+	private NodeGroupBox HitTestGroupBoxHeader(PointF viewPoint)
 	{
-		var (c1, c2) = BezierControlPoints(
-			GetSocketCenter(conn.Source),
-			GetSocketCenter(conn.Target),
-			srcIsOutput: true);
+		if (_graph == null) return null;
+		var gp = ViewToGraph(viewPoint);
+		for (int i = _graph.GroupBoxes.Count - 1; i >= 0; i--)
+		{
+			var box     = _graph.GroupBoxes[i];
+			var headerR = new RectangleF(box.Bounds.X, box.Bounds.Y, box.Bounds.Width, BoxHeaderHeight);
+			if (headerR.Contains(gp)) return box;
+		}
+		return null;
+	}
+
+	/// <summary>
+	/// Returns the group box whose full bounds contain <paramref name="viewPoint"/>,
+	/// or <c>null</c>.
+	/// </summary>
+	private NodeGroupBox HitTestGroupBox(PointF viewPoint)
+	{
+		if (_graph == null) return null;
+		var gp = ViewToGraph(viewPoint);
+		for (int i = _graph.GroupBoxes.Count - 1; i >= 0; i--)
+		{
+			var box = _graph.GroupBoxes[i];
+			if (box.Bounds.Contains(gp)) return box;
+		}
+		return null;
+	}
+
+	/// <summary>
+	/// Returns the connection and waypoint index whose handle is nearest to
+	/// <paramref name="viewPoint"/> within hit-test radius, or <c>(null, -1)</c>.
+	/// </summary>
+	private (NodeConnection conn, int idx) HitTestWaypoint(PointF viewPoint)
+	{
+		if (_graph == null) return (null, -1);
+		var gp = ViewToGraph(viewPoint);
+		float hitR2 = (WaypointHitRadius / _zoom) * (WaypointHitRadius / _zoom);
+		foreach (var conn in _graph.Connections)
+		{
+			for (int i = 0; i < conn.WayPoints.Count; i++)
+			{
+				var wp = conn.WayPoints[i];
+				float dx = wp.X - gp.X, dy = wp.Y - gp.Y;
+				if (dx * dx + dy * dy <= hitR2)
+					return (conn, i);
+			}
+		}
+		return (null, -1);
+	}
+
+	// ── Geometry helpers ─────────────────────────────────────────────────────────
+
+	/// <summary>Returns <c>true</c> when <paramref name="inner"/> is fully enclosed by <paramref name="outer"/>.</summary>
+	private static bool RectContainsRect(RectangleF outer, RectangleF inner) =>
+		inner.Left   >= outer.Left  &&
+		inner.Top    >= outer.Top   &&
+		inner.Right  <= outer.Right &&
+		inner.Bottom <= outer.Bottom;
+
+	/// <summary>Returns <c>true</c> when the two rectangles overlap.</summary>
+	private static bool RectIntersects(RectangleF a, RectangleF b) =>
+		a.Left < b.Right  && a.Right  > b.Left &&
+		a.Top  < b.Bottom && a.Bottom > b.Top;
+
+	/// <summary>Returns the smallest rectangle that encloses both inputs.</summary>
+	private static RectangleF RectUnion(RectangleF a, RectangleF b)
+	{
+		float minX = Math.Min(a.Left,   b.Left);
+		float minY = Math.Min(a.Top,    b.Top);
+		float maxX = Math.Max(a.Right,  b.Right);
+		float maxY = Math.Max(a.Bottom, b.Bottom);
+		return new RectangleF(minX, minY, maxX - minX, maxY - minY);
+	}
+
+	/// <summary>Returns all nodes whose full <see cref="NodeItem.Bounds"/> lie inside <paramref name="box"/>.</summary>
+	private List<NodeItem> GetFullyContainedNodes(NodeGroupBox box)
+	{
+		var result = new List<NodeItem>();
+		if (_graph == null) return result;
+		foreach (var node in _graph.Nodes)
+			if (RectContainsRect(box.Bounds, node.Bounds))
+				result.Add(node);
+		return result;
+	}
+
+	/// <summary>
+	/// Returns the index at which a new waypoint should be inserted into
+	/// <c>conn.WayPoints</c> so it is placed on the bezier segment nearest
+	/// to <paramref name="gp"/>.
+	/// </summary>
+	private int FindWaypointInsertIndex(NodeConnection conn, PointF gp)
+	{
 		var src = GetSocketCenter(conn.Source);
 		var tgt = GetSocketCenter(conn.Target);
-		float t2 = threshold * threshold;
-		for (int i = 0; i <= 24; i++)
+
+		var pts = new List<PointF>(conn.WayPoints.Count + 2);
+		pts.Add(src);
+		pts.AddRange(conn.WayPoints);
+		pts.Add(tgt);
+
+		float minDist2 = float.MaxValue;
+		int   bestSeg  = 0;
+
+		for (int seg = 0; seg < pts.Count - 1; seg++)
 		{
-			float t = i / 24f;
-			var  pt = CubicBezierPoint(src, c1, c2, tgt, t);
-			float dx = pt.X - gp.X, dy = pt.Y - gp.Y;
-			if (dx * dx + dy * dy <= t2) return true;
+			var (c1, c2) = BezierControlPoints(pts[seg], pts[seg + 1], srcIsOutput: true);
+			for (int i = 0; i <= 12; i++)
+			{
+				float t  = i / 12f;
+				var   pt = CubicBezierPoint(pts[seg], c1, c2, pts[seg + 1], t);
+				float dx = pt.X - gp.X, dy = pt.Y - gp.Y;
+				float d2 = dx * dx + dy * dy;
+				if (d2 < minDist2) { minDist2 = d2; bestSeg = seg; }
+			}
+		}
+
+		// bestSeg 0 = insert before first waypoint (i.e. WayPoints.Insert(0, …))
+		// bestSeg k = insert at WayPoints index k
+		return bestSeg;
+	}
+
+	private bool BezierContains(NodeConnection conn, PointF gp, float threshold)
+	{
+		var src = GetSocketCenter(conn.Source);
+		var tgt = GetSocketCenter(conn.Target);
+
+		// Build full point list: [src, wp0, …, wn, tgt]
+		var pts = new List<PointF>(conn.WayPoints.Count + 2);
+		pts.Add(src);
+		pts.AddRange(conn.WayPoints);
+		pts.Add(tgt);
+
+		float t2 = threshold * threshold;
+		for (int seg = 0; seg < pts.Count - 1; seg++)
+		{
+			var (c1, c2) = BezierControlPoints(pts[seg], pts[seg + 1], srcIsOutput: true);
+			for (int i = 0; i <= 24; i++)
+			{
+				float t  = i / 24f;
+				var   pt = CubicBezierPoint(pts[seg], c1, c2, pts[seg + 1], t);
+				float dx = pt.X - gp.X, dy = pt.Y - gp.Y;
+				if (dx * dx + dy * dy <= t2) return true;
+			}
 		}
 		return false;
 	}
@@ -696,6 +1064,10 @@ public class NodeGraphView : Drawable
 
 			if (_graph != null)
 			{
+				// Group boxes are drawn behind connections and nodes
+				foreach (var box in _graph.GroupBoxes)
+					DrawGroupBox(g, box, box == _selectedBox);
+
 				foreach (var conn in _graph.Connections)
 					DrawConnection(g, conn, conn == _hoveredConnection);
 
@@ -705,6 +1077,10 @@ public class NodeGraphView : Drawable
 
 			if (_connectingFrom != null)
 				DrawPendingConnection(g);
+
+			// Rubber-band preview while the user draws a new group box
+			if (_drawingBox)
+				DrawRubberBandBox(g);
 		}
 
 		DrawMinimap(g);
@@ -853,24 +1229,101 @@ public class NodeGraphView : Drawable
 		var src = GetSocketCenter(conn.Source);
 		var tgt = GetSocketCenter(conn.Target);
 
-		if (IsControlFlowSocket(conn.Source) || IsControlFlowSocket(conn.Target))
+		// Build full point list: [src, wp0, …, wn, tgt]
+		var pts = new List<PointF>(conn.WayPoints.Count + 2);
+		pts.Add(src);
+		pts.AddRange(conn.WayPoints);
+		pts.Add(tgt);
+
+		bool isCtrlFlow = IsControlFlowSocket(conn.Source) || IsControlFlowSocket(conn.Target);
+
+		if (isCtrlFlow)
 		{
-			// ControlFlow: light-grey, slightly wider, no glow
 			using (var pen = new Pen(Color.FromRgb(0xDDDDDD), hovered ? 3f : 2.5f))
 			{
-				var (c1, c2) = BezierControlPoints(src, tgt, srcIsOutput: true);
-				using (var path = new GraphicsPath())
+				for (int seg = 0; seg < pts.Count - 1; seg++)
 				{
-					path.AddBezier(src, c1, c2, tgt);
-					g.DrawPath(pen, path);
+					var (c1, c2) = BezierControlPoints(pts[seg], pts[seg + 1], srcIsOutput: true);
+					using (var path = new GraphicsPath())
+					{
+						path.AddBezier(pts[seg], c1, c2, pts[seg + 1]);
+						g.DrawPath(pen, path);
+					}
 				}
 			}
 		}
 		else
 		{
 			var color = BlendColors(conn.Source.SocketType.Color, conn.Target.SocketType.Color);
-			DrawBezier(g, src, tgt, srcIsOutput: true, color: color, width: hovered ? 3f : 2f, dashed: false);
+			for (int seg = 0; seg < pts.Count - 1; seg++)
+				DrawBezier(g, pts[seg], pts[seg + 1], srcIsOutput: true, color: color,
+				           width: hovered ? 3f : 2f, dashed: false);
 		}
+
+		// Draw waypoint handles on top of the wire segments
+		if (conn.WayPoints.Count > 0)
+		{
+			var handleColor = isCtrlFlow
+				? Color.FromRgb(0xDDDDDD)
+				: BlendColors(conn.Source.SocketType.Color, conn.Target.SocketType.Color);
+			foreach (var wp in conn.WayPoints)
+				DrawWaypointHandle(g, wp, handleColor);
+		}
+	}
+
+	/// <summary>
+	/// Draws a small circular handle for a wire-pin waypoint at <paramref name="wp"/>
+	/// in graph space.
+	/// </summary>
+	private void DrawWaypointHandle(Graphics g, PointF wp, Color color)
+	{
+		float r = WaypointRadius;
+		g.FillEllipse(Color.FromArgb(color.Rb, color.Gb, color.Bb, 200), wp.X - r, wp.Y - r, r * 2f, r * 2f);
+		using (var pen = new Pen(Colors.White, 1f))
+			g.DrawEllipse(pen, wp.X - r, wp.Y - r, r * 2f, r * 2f);
+	}
+
+	/// <summary>Draws a group box (in graph space, called inside the transform).</summary>
+	private void DrawGroupBox(Graphics g, NodeGroupBox box, bool selected)
+	{
+		var  r   = box.Bounds;
+		var  col = box.Color;
+
+		// Semi-transparent body fill
+		g.FillRectangle(Color.FromArgb(col.Rb, col.Gb, col.Bb, 25), r);
+
+		// Header band
+		g.FillRectangle(Color.FromArgb(col.Rb, col.Gb, col.Bb, 70),
+		                r.X, r.Y, r.Width, BoxHeaderHeight);
+
+		// Border – highlighted when selected
+		using (var pen = new Pen(selected ? Colors.White : col, selected ? 2f : 1.5f))
+			g.DrawRectangle(pen, r);
+
+		// Title
+		float titleY = r.Y + (BoxHeaderHeight - _labelFont.LineHeight) / 2f;
+		g.DrawText(_labelFont, Colors.White, r.X + 6f, titleY, box.Title);
+	}
+
+	/// <summary>
+	/// Returns the rubber-band rectangle in graph space from the two anchor points.
+	/// </summary>
+	private RectangleF GetDrawingBoxRect()
+	{
+		float x = Math.Min(_drawBoxAnchor.X, _drawBoxCurrent.X);
+		float y = Math.Min(_drawBoxAnchor.Y, _drawBoxCurrent.Y);
+		float w = Math.Abs(_drawBoxCurrent.X - _drawBoxAnchor.X);
+		float h = Math.Abs(_drawBoxCurrent.Y - _drawBoxAnchor.Y);
+		return new RectangleF(x, y, w, h);
+	}
+
+	/// <summary>Draws the rubber-band preview for a group box being drawn (in graph space).</summary>
+	private void DrawRubberBandBox(Graphics g)
+	{
+		var r = GetDrawingBoxRect();
+		g.FillRectangle(Color.FromArgb(200, 210, 255, 18), r);
+		using (var pen = new Pen(Colors.White, 1.5f) { DashStyle = DashStyles.Dash })
+			g.DrawRectangle(pen, r);
 	}
 
 	private void DrawPendingConnection(Graphics g)
@@ -1023,6 +1476,19 @@ public class NodeGraphView : Drawable
 			new PointF(originX + (gx - worldMinX) * scale,
 			           originY + (gy - worldMinY) * scale);
 
+		// ── Draw group boxes (behind connections and nodes) ────────────────────────
+		foreach (var box in _graph.GroupBoxes)
+		{
+			var tl = ToMM(box.Bounds.Left, box.Bounds.Top);
+			var br = ToMM(box.Bounds.Right, box.Bounds.Bottom);
+			float bw = Math.Max(1f, br.X - tl.X);
+			float bh = Math.Max(1f, br.Y - tl.Y);
+			var col = box.Color;
+			g.FillRectangle(Color.FromArgb(col.Rb, col.Gb, col.Bb, 50), tl.X, tl.Y, bw, bh);
+			using (var boxPen = new Pen(Color.FromArgb(col.Rb, col.Gb, col.Bb, 180), 1f))
+				g.DrawRectangle(boxPen, tl.X, tl.Y, bw, bh);
+		}
+
 		// ── Draw connections ──────────────────────────────────────────────────────
 		using (var connPen = new Pen(s_minimapConnColor, 1f))
 		{
@@ -1094,13 +1560,15 @@ public class NodeGraphView : Drawable
 
 		if (e.Buttons == MouseButtons.Primary)
 		{
+			bool ctrlDown = e.Modifiers.HasFlag(Keys.Control);
+
 			// ── Socket interaction ────────────────────────────────────────────────
 			var socket = HitTestSocket(e.Location);
 			if (socket != null)
 			{
+				_selectedBox = null;
 				if (socket.Direction == NodeSocketDirection.Output)
 				{
-					// Start drawing a connection from the output
 					_connectingFrom   = socket;
 					_connectingToView = e.Location;
 				}
@@ -1108,7 +1576,6 @@ public class NodeGraphView : Drawable
 				{
 					if (socket.IsConnected)
 					{
-						// Re-route: detach existing connection, keep dragging from its source
 						var existing = socket.Connections[0];
 						_connectingFrom   = existing.Source;
 						_connectingToView = e.Location;
@@ -1117,7 +1584,6 @@ public class NodeGraphView : Drawable
 					}
 					else
 					{
-						// Start from an unconnected input (reversed bezier)
 						_connectingFrom   = socket;
 						_connectingToView = e.Location;
 					}
@@ -1127,10 +1593,41 @@ public class NodeGraphView : Drawable
 				return;
 			}
 
+			// ── Ctrl+click on a connection: insert a waypoint ─────────────────────
+			if (ctrlDown)
+			{
+				var connForPin = HitTestConnection(e.Location);
+				if (connForPin != null)
+				{
+					var gp = ViewToGraph(e.Location);
+					int insertIdx = FindWaypointInsertIndex(connForPin, gp);
+					connForPin.WayPoints.Insert(insertIdx, gp);
+					Invalidate();
+					e.Handled = true;
+					return;
+				}
+			}
+
+			// ── Wire-pin (waypoint) drag ──────────────────────────────────────────
+			var (pinConn, pinIdx) = HitTestWaypoint(e.Location);
+			if (pinConn != null)
+			{
+				_draggingPin      = true;
+				_dragPinConn      = pinConn;
+				_dragPinIdx       = pinIdx;
+				_dragPinMouseStart = e.Location;
+				_dragPinStart     = pinConn.WayPoints[pinIdx];
+				Invalidate();
+				e.Handled = true;
+				return;
+			}
+
 			// ── Node interaction ──────────────────────────────────────────────────
 			var node = HitTestNode(e.Location);
 			if (node != null)
 			{
+				_selectedBox = null;
+
 				// Selection
 				if (!e.Modifiers.HasFlag(Keys.Shift) && !_selection.Contains(node))
 					_selection.Clear();
@@ -1147,20 +1644,75 @@ public class NodeGraphView : Drawable
 				_dragMouseStart     = e.Location;
 				_dragStartPositions = _selection.ToDictionary(n => n, n => n.Position);
 
+				// Record which boxes fully contained each dragged node at drag start
+				_dragNodeBoxMemberships = new Dictionary<NodeItem, List<NodeGroupBox>>();
+				if (_graph != null)
+				{
+					foreach (var n in _selection)
+					{
+						_dragNodeBoxMemberships[n] = _graph.GroupBoxes
+							.Where(b => RectContainsRect(b.Bounds, n.Bounds))
+							.ToList();
+					}
+				}
+
+				Invalidate();
+				e.Handled = true;
+				return;
+			}
+
+			// ── Group-box header drag ─────────────────────────────────────────────
+			if (!ctrlDown)
+			{
+				var boxHeader = HitTestGroupBoxHeader(e.Location);
+				if (boxHeader != null)
+				{
+					_selectedBox       = boxHeader;
+					_dragBox           = boxHeader;
+					_dragBoxMouseStart = e.Location;
+					_dragBoxOrigBounds = boxHeader.Bounds;
+					_dragBoxNodeStarts = GetFullyContainedNodes(boxHeader)
+					                     .Select(n => (n, n.Position))
+					                     .ToList();
+					_selection.Clear();
+					SelectionChanged?.Invoke(this, new NodeItemEventArgs(null));
+					Invalidate();
+					e.Handled = true;
+					return;
+				}
+			}
+
+			// ── Ctrl+drag on empty space: rubber-band new group box ───────────────
+			if (ctrlDown)
+			{
+				_drawingBox     = true;
+				_drawBoxAnchor  = ViewToGraph(e.Location);
+				_drawBoxCurrent = _drawBoxAnchor;
 				Invalidate();
 				e.Handled = true;
 				return;
 			}
 
 			// ── Deselect ─────────────────────────────────────────────────────────
+			_selectedBox = null;
 			_selection.Clear();
 			SelectionChanged?.Invoke(this, new NodeItemEventArgs(null));
 			Invalidate();
 		}
 
-		// ── Right-click: delete hovered connection ────────────────────────────────
+		// ── Right-click: delete waypoint or hovered connection ────────────────────
 		if (e.Buttons == MouseButtons.Alternate && _graph != null)
 		{
+			// Waypoint removal takes priority over connection deletion
+			var (pinConn, pinIdx) = HitTestWaypoint(e.Location);
+			if (pinConn != null)
+			{
+				pinConn.WayPoints.RemoveAt(pinIdx);
+				Invalidate();
+				e.Handled = true;
+				return;
+			}
+
 			var conn = _hoveredConnection ?? HitTestConnection(e.Location);
 			if (conn != null)
 			{
@@ -1193,10 +1745,46 @@ public class NodeGraphView : Drawable
 			return;
 		}
 
+		// ── Wire-pin drag ─────────────────────────────────────────────────────────
+		if (_draggingPin)
+		{
+			var delta = e.Location - _dragPinMouseStart;
+			float dx  = delta.X / _zoom;
+			float dy  = delta.Y / _zoom;
+			_dragPinConn.WayPoints[_dragPinIdx] = new PointF(_dragPinStart.X + dx, _dragPinStart.Y + dy);
+			Invalidate();
+			return;
+		}
+
+		// ── Rubber-band group-box drawing ─────────────────────────────────────────
+		if (_drawingBox)
+		{
+			_drawBoxCurrent = ViewToGraph(e.Location);
+			Invalidate();
+			return;
+		}
+
 		if (_connectingFrom != null)
 		{
 			_connectingToView = e.Location;
 			_hoveredSocket    = HitTestSocket(e.Location);
+			Invalidate();
+			return;
+		}
+
+		// ── Group-box drag ────────────────────────────────────────────────────────
+		if (_dragBox != null)
+		{
+			var delta = e.Location - _dragBoxMouseStart;
+			float dx  = delta.X / _zoom;
+			float dy  = delta.Y / _zoom;
+			var   ob  = _dragBoxOrigBounds;
+			_dragBox.Bounds = new RectangleF(ob.X + dx, ob.Y + dy, ob.Width, ob.Height);
+
+			// Move the nodes that were fully contained at drag start
+			foreach (var (n, startPos) in _dragBoxNodeStarts)
+				n.Position = new PointF(startPos.X + dx, startPos.Y + dy);
+
 			Invalidate();
 			return;
 		}
@@ -1233,10 +1821,77 @@ public class NodeGraphView : Drawable
 			return;
 		}
 
-		_isPanning          = false;
+		_isPanning = false;
+
+		// ── Wire-pin drag end ─────────────────────────────────────────────────────
+		if (_draggingPin)
+		{
+			_draggingPin = false;
+			_dragPinConn = null;
+			e.Handled    = true;
+			return;
+		}
+
+		// ── Rubber-band group-box creation end ────────────────────────────────────
+		if (_drawingBox)
+		{
+			_drawingBox = false;
+			var r = GetDrawingBoxRect();
+			if (r.Width >= MinBoxCreateSize && r.Height >= MinBoxCreateSize && _graph != null)
+			{
+				// Ensure the box is always tall enough to show its header
+				float minH = BoxHeaderHeight + 20f;
+				if (r.Height < minH)
+					r = new RectangleF(r.X, r.Y, r.Width, minH);
+				var box = new NodeGroupBox { Bounds = r };
+				_graph.AddGroupBox(box);
+				_selectedBox = box;
+			}
+			Invalidate();
+			e.Handled = true;
+			return;
+		}
+
+		// ── Group-box drag end ────────────────────────────────────────────────────
+		if (_dragBox != null)
+		{
+			_dragBox           = null;
+			_dragBoxNodeStarts = null;
+			e.Handled          = true;
+			return;
+		}
+
+		// ── Node drag end: apply box-membership logic ─────────────────────────────
+		bool wasNodeDrag    = _dragNode != null;
 		_dragNode           = null;
 		_dragStartPositions = null;
 
+		if (wasNodeDrag && _dragNodeBoxMemberships != null && _graph != null)
+		{
+			foreach (var kvp in _dragNodeBoxMemberships)
+			{
+				var node  = kvp.Key;
+				var boxes = kvp.Value;
+				foreach (var box in boxes)
+				{
+					if (!_graph.GroupBoxes.Contains(box)) continue;
+
+					bool fullyInside   = RectContainsRect(box.Bounds, node.Bounds);
+					bool partialOverlap = !fullyInside && RectIntersects(box.Bounds, node.Bounds);
+
+					if (partialOverlap)
+					{
+						// Node is trying to make more room – expand the box to contain it
+						box.Bounds = RectUnion(box.Bounds, node.Bounds);
+					}
+					// If fully outside: node escapes the box – no action needed
+				}
+			}
+			_dragNodeBoxMemberships = null;
+			Invalidate();
+		}
+
+		// ── Connection creation ───────────────────────────────────────────────────
 		if (_connectingFrom != null)
 		{
 			var targetSocket = HitTestSocket(e.Location);
@@ -1295,6 +1950,9 @@ public class NodeGraphView : Drawable
 
 			case Keys.Escape:
 				_connectingFrom = null;
+				_drawingBox     = false;
+				_draggingPin    = false;
+				_dragPinConn    = null;
 				Invalidate();
 				e.Handled = true;
 				break;
@@ -1306,6 +1964,12 @@ public class NodeGraphView : Drawable
 					foreach (var node in _selection.ToList())
 						_graph.RemoveNode(node);
 					_selection.Clear();
+
+					if (_selectedBox != null)
+					{
+						_graph.RemoveGroupBox(_selectedBox);
+						_selectedBox = null;
+					}
 
 					if (_hoveredConnection != null)
 					{
@@ -1326,6 +1990,14 @@ public class NodeGraphView : Drawable
 					_selection.AddRange(_graph.Nodes);
 					SelectionChanged?.Invoke(this, new NodeItemEventArgs(null));
 					Invalidate();
+					e.Handled = true;
+				}
+				break;
+
+			case Keys.B:
+				if (e.Control)
+				{
+					AddBookmark();
 					e.Handled = true;
 				}
 				break;
@@ -1607,6 +2279,168 @@ public class NodeListPanel : Panel
 			{
 				_subscribedGraph.NodeAdded   -= OnNodeAddedOrRemoved;
 				_subscribedGraph.NodeRemoved -= OnNodeAddedOrRemoved;
+			}
+		}
+		base.Dispose(disposing);
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────
+//  BookmarkPanel
+// ─────────────────────────────────────────────────────────────────────────────────
+
+/// <summary>
+/// A side-panel that lists every <see cref="GraphBookmark"/> stored in the current
+/// graph and lets the user navigate to, add, and delete bookmarks.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Clicking a bookmark row instantly restores the camera position and zoom stored in
+/// that bookmark (calls <see cref="NodeGraphView.JumpToBookmark"/>).
+/// </para>
+/// <para>
+/// The <b>+</b> button creates a new bookmark at the current camera position.
+/// Pressing <b>Delete / Backspace</b> while a row is focused removes that bookmark.
+/// </para>
+/// <para>
+/// The list refreshes automatically whenever the graph's
+/// <see cref="NodeGraph.BookmarkAdded"/> or <see cref="NodeGraph.BookmarkRemoved"/>
+/// events fire, or when <see cref="NodeGraphView.Graph"/> is replaced.
+/// </para>
+/// </remarks>
+public class BookmarkPanel : Panel
+{
+	// ── Colours (match the dark theme used by NodeGraphView) ─────────────────────
+	private static readonly Color s_bg     = Color.FromRgb(0x161622);
+	private static readonly Color s_header = Color.FromRgb(0x7777AA);
+
+	// ── Inner list item ──────────────────────────────────────────────────────────
+	private sealed class BookmarkListItem : IListItem
+	{
+		public GraphBookmark Bookmark { get; }
+		public string Text { get => Bookmark.Name; set { } }
+		public string Key  => null;
+		public BookmarkListItem(GraphBookmark bm) => Bookmark = bm;
+	}
+
+	// ── State ────────────────────────────────────────────────────────────────────
+	private readonly NodeGraphView _view;
+	private readonly ListBox       _listBox;
+	private NodeGraph              _subscribedGraph;
+
+	/// <summary>
+	/// Initializes a new <see cref="BookmarkPanel"/> bound to <paramref name="view"/>.
+	/// </summary>
+	/// <param name="view">The <see cref="NodeGraphView"/> to observe and control.</param>
+	public BookmarkPanel(NodeGraphView view)
+	{
+		_view = view ?? throw new ArgumentNullException(nameof(view));
+		BackgroundColor = s_bg;
+		MinimumSize     = new Size(120, 0);
+
+		_listBox = new ListBox { BackgroundColor = s_bg };
+		_listBox.SelectedIndexChanged += OnListSelectionChanged;
+		_listBox.KeyDown              += OnListKeyDown;
+
+		var headerLabel = new Label
+		{
+			Text              = "BOOKMARKS",
+			Font              = new Font(SystemFont.Default, 9f),
+			TextColor         = s_header,
+			VerticalAlignment = VerticalAlignment.Center,
+		};
+
+		var addBtn = new Button { Text = "+", ToolTip = "Add bookmark at current camera position (Ctrl+B)" };
+		addBtn.Click += (_, _) => _view.AddBookmark();
+
+		var headerRow = new TableLayout
+		{
+			Rows =
+			{
+				new TableRow(new TableCell(headerLabel, scaleWidth: true), new TableCell(addBtn)),
+			},
+		};
+
+		var layout = new DynamicLayout
+		{
+			Padding         = new Padding(6, 6),
+			DefaultSpacing  = new Size(2, 4),
+			BackgroundColor = s_bg,
+		};
+		layout.Add(headerRow);
+		layout.Add(_listBox, yscale: true);
+
+		Content = layout;
+
+		_view.GraphChanged += OnViewGraphChanged;
+		RefreshGraph();
+	}
+
+	// ── Private helpers ──────────────────────────────────────────────────────────
+
+	private void RefreshGraph()
+	{
+		if (_subscribedGraph != null)
+		{
+			_subscribedGraph.BookmarkAdded   -= OnBookmarkChanged;
+			_subscribedGraph.BookmarkRemoved -= OnBookmarkChanged;
+		}
+
+		_subscribedGraph = _view.Graph;
+
+		if (_subscribedGraph != null)
+		{
+			_subscribedGraph.BookmarkAdded   += OnBookmarkChanged;
+			_subscribedGraph.BookmarkRemoved += OnBookmarkChanged;
+		}
+
+		PopulateList();
+	}
+
+	private void PopulateList()
+	{
+		_listBox.Items.Clear();
+		if (_view.Graph != null)
+			foreach (var bm in _view.Graph.Bookmarks)
+				_listBox.Items.Add(new BookmarkListItem(bm));
+	}
+
+	// ── Event handlers ───────────────────────────────────────────────────────────
+
+	private void OnViewGraphChanged(object sender, EventArgs e)                     => RefreshGraph();
+	private void OnBookmarkChanged(object sender, GraphBookmarkEventArgs e)          => PopulateList();
+
+	private void OnListSelectionChanged(object sender, EventArgs e)
+	{
+		int idx = _listBox.SelectedIndex;
+		if (idx < 0 || idx >= _listBox.Items.Count) return;
+		if (_listBox.Items[idx] is BookmarkListItem bli)
+			_view.JumpToBookmark(bli.Bookmark);
+	}
+
+	private void OnListKeyDown(object sender, KeyEventArgs e)
+	{
+		if (e.Key != Keys.Delete && e.Key != Keys.Backspace) return;
+
+		int idx = _listBox.SelectedIndex;
+		if (idx < 0 || idx >= _listBox.Items.Count) return;
+		if (_listBox.Items[idx] is BookmarkListItem bli && _view.Graph != null)
+		{
+			_view.Graph.RemoveBookmark(bli.Bookmark);
+			e.Handled = true;
+		}
+	}
+
+	/// <inheritdoc/>
+	protected override void Dispose(bool disposing)
+	{
+		if (disposing)
+		{
+			_view.GraphChanged -= OnViewGraphChanged;
+			if (_subscribedGraph != null)
+			{
+				_subscribedGraph.BookmarkAdded   -= OnBookmarkChanged;
+				_subscribedGraph.BookmarkRemoved -= OnBookmarkChanged;
 			}
 		}
 		base.Dispose(disposing);

@@ -6,13 +6,18 @@ namespace NodeShapeBuilder;
 /// The main application window.
 ///
 /// Layout:
-/// ┌──────────────────────────────────────────────────────────┐
-/// │  Toolbar                                                 │
-/// ├────────────┬────────────────────────────┬────────────────┤
-/// │  Properties│      NodeGraphView          │   Shape Preview│
-/// │  Panel     │  (drag sockets to connect) │   (Drawable)   │
-/// │  (200 px)  │                            │   (240 px)     │
-/// └────────────┴────────────────────────────┴────────────────┘
+/// ┌──────────────────────────────────────────────────────────────────────┐
+/// │  Toolbar                                                             │
+/// ├────────────┬────────────────────────────────────┬────────────────────┤
+/// │ Left panel │      NodeGraphView                  │   Shape Preview    │
+/// │ ─────────  │  (drag sockets to connect)          │   (Drawable)       │
+/// │ Node list  │                                     │   (240 px)         │
+/// │ ─────────  │                                     │                    │
+/// │ Bookmarks  │                                     │                    │
+/// │  (150 px)  │                                     │                    │
+/// ├────────────┴────────────────────────────────────┴────────────────────┤
+/// │  Status bar                                                          │
+/// └──────────────────────────────────────────────────────────────────────┘
 ///
 /// Shape nodes available from toolbar: Rectangle, Circle, L-Shape, T-Shape.
 /// Boolean nodes: Union, Intersection, Difference.
@@ -31,6 +36,7 @@ public class MainForm : Form
 	ShapePreviewPanel _previewPanel;
 	NodePropertyPanel _propPanel;
 	NodeListPanel    _nodeListPanel;
+	BookmarkPanel    _bookmarkPanel;
 	Label            _statusLabel;
 
 	public MainForm()
@@ -39,14 +45,15 @@ public class MainForm : Form
 		ClientSize   = new Size(1200, 700);
 		Resizable    = true;
 
-		_graphView     = new NodeGraphView();
-		_previewPanel  = new ShapePreviewPanel
+		_graphView      = new NodeGraphView();
+		_previewPanel   = new ShapePreviewPanel
 		{
 			BackgroundColor = Color.FromRgb(0x1A1A2A),
 		};
-		_propPanel     = new NodePropertyPanel(_graphView, RefreshPreview);
-		_nodeListPanel = new NodeListPanel(_graphView);
-		_statusLabel   = new Label
+		_propPanel      = new NodePropertyPanel(_graphView, RefreshPreview);
+		_nodeListPanel  = new NodeListPanel(_graphView);
+		_bookmarkPanel  = new BookmarkPanel(_graphView);
+		_statusLabel    = new Label
 		{
 			Text      = "Ready",
 			TextColor = Color.FromRgb(0x888899),
@@ -97,10 +104,19 @@ public class MainForm : Form
 			Position    = 200,
 		};
 
+		// Left panel: NodeList on top, BookmarkPanel on bottom
+		var leftPanel = new Splitter
+		{
+			Orientation = Orientation.Vertical,
+			Panel1      = _nodeListPanel,
+			Panel2      = _bookmarkPanel,
+			Position    = 300,
+		};
+
 		var outerSplitter = new Splitter
 		{
 			Orientation = Orientation.Horizontal,
-			Panel1      = _nodeListPanel,
+			Panel1      = leftPanel,
 			Panel2      = propAndGraph,
 			Position    = 150,
 		};
@@ -147,6 +163,12 @@ public class MainForm : Form
 				NodeBtn("Output",       MakeOutput),
 				new StackLayoutItem(new Panel(), expand: true),
 				// Utility
+				QuickBtn("Bookmark (Ctrl+B)", () =>
+				{
+					var bm = _graphView.AddBookmark();
+					if (bm != null) SetStatus($"Bookmark added: '{bm.Name}'");
+				}),
+				new Panel { Width = 4 },
 				QuickBtn("Frame (F)",  () => _graphView.FrameAll()),
 				QuickBtn("Reset Demo", ResetDemo),
 				QuickBtn("Clear",      () =>
@@ -331,6 +353,30 @@ public class MainForm : Form
 		g.Connect(union.Outputs[0],  diff.Inputs[0]);
 		g.Connect(circle.Outputs[0], diff.Inputs[1]);
 		g.Connect(diff.Outputs[0],   output.Inputs[0]);
+
+		// Pre-built group box enclosing the two input Rectangle nodes
+		g.AddGroupBox(new NodeGroupBox
+		{
+			Title  = "Input Shapes",
+			Color  = Color.FromRgb(0x1E88E5),
+			Bounds = new RectangleF(10, 10, 240, 330),
+		});
+
+		// Pre-built group box enclosing the Boolean operation nodes
+		g.AddGroupBox(new NodeGroupBox
+		{
+			Title  = "Boolean Ops",
+			Color  = Color.FromRgb(0x43A047),
+			Bounds = new RectangleF(250, 70, 310, 280),
+		});
+
+		// A starter bookmark at the default camera position
+		g.AddBookmark(new GraphBookmark
+		{
+			Name   = "Overview",
+			Offset = new PointF(30f, 30f),
+			Zoom   = 1f,
+		});
 
 		return g;
 	}
