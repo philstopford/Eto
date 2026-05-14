@@ -33,6 +33,7 @@
   <Folder Name="/Gtk/">
     <Project Path="Gtk/EmbedEtoInGtk/EmbedEtoInGtk.csproj" />
     <Project Path="Gtk/EmbedGtkInEto/EmbedGtkInEto.csproj" />
+    <Project Path="Gtk/VulkanSurfaceTest/VulkanSurfaceTest.csproj" />
     <Properties Name="MonoDevelopProperties">
       <Property Name="BaseDirectory" Value="Gtk" />
     </Properties>

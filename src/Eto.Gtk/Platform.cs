@@ -238,6 +238,7 @@ namespace Eto.GtkSharp
 				
 			p.Add<Spinner.IHandler>(() => new SpinnerHandler());
 			p.Add<OpenWithDialog.IHandler>(() => new OpenWithDialogHandler());
+			p.Add<VulkanSurface.IHandler>(() => new VulkanSurfaceHandler());
 			#else
 			p.Add<Spinner.IHandler>(() => new ThemedSpinnerHandler());
 			#endif

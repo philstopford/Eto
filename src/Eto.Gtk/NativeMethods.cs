@@ -519,6 +519,26 @@ namespace Eto.GtkSharp
 
 			[DllImport(libgdk, CallingConvention = CallingConvention.Cdecl)]
 			public extern static IntPtr gdk_pixbuf_get_from_window(IntPtr window, int x, int y, int width, int height);
+
+			// ── Wayland / X11 GDK accessors (Linux-only, used by VulkanSurfaceHandler) ──
+
+			[DllImport(libgdk, CallingConvention = CallingConvention.Cdecl)]
+			public extern static IntPtr gdk_wayland_display_get_wl_display(IntPtr display);
+
+			[DllImport(libgdk, CallingConvention = CallingConvention.Cdecl)]
+			public extern static IntPtr gdk_wayland_window_get_wl_surface(IntPtr window);
+
+			[DllImport(libgdk, CallingConvention = CallingConvention.Cdecl)]
+			public extern static IntPtr gdk_x11_display_get_xdisplay(IntPtr display);
+
+			[DllImport(libgdk, CallingConvention = CallingConvention.Cdecl)]
+			public extern static ulong gdk_x11_window_get_xid(IntPtr window);
+
+			// Returns the CSD shadow margins of a GtkWindow (available since GTK 3.22).
+			[DllImport(libgtk, CallingConvention = CallingConvention.Cdecl)]
+			public extern static void gtk_window_get_shadow_width(
+				IntPtr window, out int left, out int right, out int top, out int bottom);
+
 			[DllImport(libpango, CallingConvention = CallingConvention.Cdecl)]
 			public extern static bool pango_font_has_char(IntPtr font, int wc);
 			[DllImport(libpangocairo, CallingConvention = CallingConvention.Cdecl)]
@@ -1524,6 +1544,46 @@ namespace Eto.GtkSharp
 				return NMMac.FcPatternGetString(p, objectname, n, out s);
 			else
 				return NMWindows.FcPatternGetString(p, objectname, n, out s);
+		}
+
+		// ── Wayland / X11 GDK accessors (Linux-only, called by VulkanSurfaceHandler) ──
+		// These functions only exist in libgdk on Linux (Wayland / X11 GDK backends).
+		// They are intentionally not forwarded to NMMac / NMWindows.
+
+		public static IntPtr gdk_wayland_display_get_wl_display(IntPtr display)
+			=> NMLinux.gdk_wayland_display_get_wl_display(display);
+
+		public static IntPtr gdk_wayland_window_get_wl_surface(IntPtr window)
+			=> NMLinux.gdk_wayland_window_get_wl_surface(window);
+
+		public static IntPtr gdk_x11_display_get_xdisplay(IntPtr display)
+			=> NMLinux.gdk_x11_display_get_xdisplay(display);
+
+		public static ulong gdk_x11_window_get_xid(IntPtr window)
+			=> NMLinux.gdk_x11_window_get_xid(window);
+
+		/// <summary>
+		/// Returns the CSD shadow margins for a GtkWindow via <c>gtk_window_get_shadow_width</c>
+		/// (available since GTK 3.22).  Returns all zeros when the function is unavailable
+		/// (older GTK) or the window has no CSD shadow.
+		/// </summary>
+		public static void gtk_window_get_shadow_width(IntPtr window,
+			out int left, out int right, out int top, out int bottom)
+		{
+			try
+			{
+				NMLinux.gtk_window_get_shadow_width(window, out left, out right, out top, out bottom);
+			}
+			catch (EntryPointNotFoundException)
+			{
+				// gtk_window_get_shadow_width was added in GTK 3.22; treat as no shadow on
+				// older versions.
+				left = right = top = bottom = 0;
+			}
+			catch (DllNotFoundException)
+			{
+				left = right = top = bottom = 0;
+			}
 		}
 	}
 }
