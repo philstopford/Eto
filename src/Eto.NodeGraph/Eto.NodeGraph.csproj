@@ -17,6 +17,6 @@ It runs unchanged on all Eto targets: WinForms, WPF, GTK and macOS.
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Eto\Eto.csproj" />
+    <PackageReference Include="Eto.Forms" Version="2.11.0" />
   </ItemGroup>
 </Project>

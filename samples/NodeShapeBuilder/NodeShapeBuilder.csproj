@@ -25,13 +25,12 @@
   <!-- Eto core + platform.  Swap Eto.Gtk for Eto.WinForms or Eto.Wpf on Windows. -->
   <ItemGroup>
     <ProjectReference Include="..\..\src\Eto.NodeGraph\Eto.NodeGraph.csproj" />
-    <ProjectReference Include="..\..\src\Eto\Eto.csproj" />
-    <ProjectReference Include="..\..\src\Eto.Gtk\Eto.Gtk.csproj" />
   </ItemGroup>
 
   <!-- Clipper2 for polygon boolean operations (same library that DesignLibs uses). -->
   <ItemGroup>
     <PackageReference Include="Clipper2" Version="1.4.0" />
+    <PackageReference Include="Eto.Platform.Gtk" Version="2.11.0" />
   </ItemGroup>
 
 </Project>

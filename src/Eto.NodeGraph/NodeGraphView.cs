@@ -668,6 +668,13 @@ public class NodeGraphView : Drawable
 	/// <summary>Gets the current node selection.</summary>
 	public IReadOnlyList<NodeItem> SelectedNodes => _selection.AsReadOnly();
 
+	/// <summary>
+	/// Returns the visible socket under a view-space point, or <c>null</c> when the
+	/// point is not over a socket. This is intended for host applications that
+	/// provide socket-specific gestures such as inline editing.
+	/// </summary>
+	public NodeSocket HitTestSocketAt(PointF viewPoint) => HitTestSocket(viewPoint);
+
 	/// <summary>Raised when the node selection changes.</summary>
 	public event EventHandler<NodeItemEventArgs> SelectionChanged;
 
@@ -1067,32 +1074,32 @@ public class NodeGraphView : Drawable
 		g.Clear(s_canvasColor);
 		DrawGrid(g);
 
-		using (g.SaveTransformState())
+		g.SaveTransform();
+		g.TranslateTransform(_offset.X, _offset.Y);
+		g.ScaleTransform(_zoom, _zoom);
+
+		if (_graph != null)
 		{
-			g.TranslateTransform(_offset.X, _offset.Y);
-			g.ScaleTransform(_zoom, _zoom);
+			// Group boxes are drawn behind connections and nodes
+			foreach (var box in _graph.GroupBoxes)
+				DrawGroupBox(g, box, box == _selectedBox);
 
-			if (_graph != null)
-			{
-				// Group boxes are drawn behind connections and nodes
-				foreach (var box in _graph.GroupBoxes)
-					DrawGroupBox(g, box, box == _selectedBox);
+			foreach (var conn in _graph.Connections)
+				DrawConnection(g, conn, conn == _hoveredConnection);
 
-				foreach (var conn in _graph.Connections)
-					DrawConnection(g, conn, conn == _hoveredConnection);
-
-				foreach (var node in _graph.Nodes)
-					DrawNode(g, node);
-			}
-
-			if (_connectingFrom != null)
-				DrawPendingConnection(g);
-
-			// Rubber-band preview while the user draws a new group box
-			if (_drawingBox)
-				DrawRubberBandBox(g);
+			foreach (var node in _graph.Nodes)
+				DrawNode(g, node);
 		}
 
+		if (_connectingFrom != null)
+			DrawPendingConnection(g);
+
+		// Rubber-band preview while the user draws a new group box
+		if (_drawingBox)
+			DrawRubberBandBox(g);
+		g.RestoreTransform();
+
+		// The minimap is a device-space overlay, never affected by graph pan/zoom.
 		DrawMinimap(g);
 	}
 
@@ -1436,7 +1443,7 @@ public class NodeGraphView : Drawable
 	/// <summary>Draws the minimap overlay into <paramref name="g"/> (view-space coordinates).</summary>
 	private void DrawMinimap(Graphics g)
 	{
-		if (!ShowMinimap || _graph == null || _graph.Nodes.Count == 0) return;
+		if (!ShowMinimap || _graph == null) return;
 
 		var mm = GetMinimapRect();
 
@@ -1644,10 +1651,6 @@ public class NodeGraphView : Drawable
 				if (!_selection.Contains(node))
 					_selection.Add(node);
 				SelectionChanged?.Invoke(this, new NodeItemEventArgs(node));
-
-				// Bring clicked node to front visually
-				_graph.Nodes.Remove(node);
-				_graph.Nodes.Add(node);
 
 				// Begin drag
 				_dragNode           = node;
@@ -1932,16 +1935,25 @@ public class NodeGraphView : Drawable
 	protected override void OnMouseWheel(MouseEventArgs e)
 	{
 		base.OnMouseWheel(e);
-		// Zoom centered on the cursor position
-		var graphPos = ViewToGraph(e.Location);
-		float factor = 1f + e.Delta.Height * 0.1f;
-		_zoom = Math.Max(MinZoom, Math.Min(MaxZoom, _zoom * factor));
-		// Adjust offset so that graphPos stays under the cursor
-		_offset = new PointF(
-			e.Location.X - graphPos.X * _zoom,
-			e.Location.Y - graphPos.Y * _zoom);
-		Invalidate();
+		if (e.Delta.Height == 0)
+			return;
+
+		ZoomAt(e.Location, (float)Math.Exp(e.Delta.Height * 0.35f));
 		e.Handled = true;
+	}
+
+	/// <summary>Zooms around a view-space point while keeping that point stationary.</summary>
+	public void ZoomAt(PointF viewPoint, float factor)
+	{
+		if (factor <= 0 || float.IsNaN(factor) || float.IsInfinity(factor))
+			return;
+
+		var graphPos = ViewToGraph(viewPoint);
+		_zoom = Math.Max(MinZoom, Math.Min(MaxZoom, _zoom * factor));
+		_offset = new PointF(
+			viewPoint.X - graphPos.X * _zoom,
+			viewPoint.Y - graphPos.Y * _zoom);
+		Invalidate();
 	}
 
 	// ── Keyboard events ───────────────────────────────────────────────────────────
@@ -2052,6 +2064,47 @@ public class NodeGraphView : Drawable
 	}
 
 	/// <summary>
+	/// Arranges the graph nodes in left-to-right dependency columns without overlap.
+	/// </summary>
+	/// <param name="nodes">Nodes to arrange; defaults to every node in the graph.</param>
+	/// <param name="columnSpacing">Horizontal gap between columns.</param>
+	/// <param name="rowSpacing">Vertical gap between nodes.</param>
+	public void AutoLayout(IEnumerable<NodeItem> nodes = null, float columnSpacing = 300f, float rowSpacing = 32f)
+	{
+		if (_graph == null) return;
+
+		LayoutAllNodes();
+		var selected = (nodes ?? _graph.Nodes).Where(node => node != null && _graph.Nodes.Contains(node)).Distinct().ToList();
+		if (selected.Count == 0) return;
+
+		var selectedSet = new HashSet<NodeItem>(selected);
+		var depths = new Dictionary<NodeItem, int>();
+		int GetDepth(NodeItem node, HashSet<NodeItem> visiting)
+		{
+			if (depths.TryGetValue(node, out var cached)) return cached;
+			if (!visiting.Add(node)) return 0;
+			int depth = 0;
+			foreach (var connection in _graph.Connections.Where(connection =>
+				connection.Target.Node == node && selectedSet.Contains(connection.Source.Node)))
+				depth = Math.Max(depth, GetDepth(connection.Source.Node, visiting) + 1);
+			visiting.Remove(node);
+			return depths[node] = depth;
+		}
+
+		foreach (var node in selected) GetDepth(node, new HashSet<NodeItem>());
+		foreach (var column in selected.GroupBy(node => depths[node]).OrderBy(column => column.Key))
+		{
+			float y = 60f;
+			foreach (var node in column.OrderBy(node => node.Title, StringComparer.OrdinalIgnoreCase))
+			{
+				node.Position = new PointF(60f + column.Key * columnSpacing, y);
+				y += node.ComputedHeight + rowSpacing;
+			}
+		}
+		Invalidate();
+	}
+
+	/// <summary>
 	/// Returns the bounding rectangle (in graph space) that encloses all nodes,
 	/// or <see cref="RectangleF.Empty"/> when the graph is empty.
 	/// </summary>
@@ -2091,6 +2144,15 @@ public class NodeGraphView : Drawable
 		float cx = node.Position.X + node.ComputedWidth  / 2f;
 		float cy = node.Position.Y + node.ComputedHeight / 2f;
 		_offset = new PointF(Width / 2f - cx * _zoom, Height / 2f - cy * _zoom);
+		Invalidate();
+	}
+
+	/// <summary>Selects <paramref name="node"/> without changing the camera.</summary>
+	public void SelectNode(NodeItem node)
+	{
+		if (node == null || _graph == null || !_graph.Nodes.Contains(node)) return;
+		_selection.Clear();
+		_selection.Add(node);
 		Invalidate();
 	}
 
