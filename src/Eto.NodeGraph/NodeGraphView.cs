@@ -1390,12 +1390,50 @@ public class NodeGraphView : Drawable
 	/// Returns the minimap panel rectangle in view (pixel) coordinates,
 	/// anchored to the bottom-right corner of the canvas.
 	/// </summary>
-	private RectangleF GetMinimapRect() =>
+	private RectangleF GetMinimapRect() => GetMinimapRect(GetEffectiveCanvasSize());
+
+	private RectangleF GetMinimapRect(Size canvasSize) =>
 		new RectangleF(
-			Width  - MinimapWidth  - MinimapMargin,
-			Height - MinimapHeight - MinimapMargin,
+			canvasSize.Width  - MinimapWidth  - MinimapMargin,
+			canvasSize.Height - MinimapHeight - MinimapMargin,
 			MinimapWidth,
 			MinimapHeight);
+
+	/// <summary>
+	/// Gets the portion of this control that remains drawable after ancestor
+	/// containers clip it. Fixed layouts can leave a child larger than its pane;
+	/// using the control's <c>Width</c> alone would anchor the minimap outside that pane.
+	/// </summary>
+	private Size GetEffectiveCanvasSize()
+	{
+		int width = Math.Max(1, Width);
+		int height = Math.Max(1, Height);
+		Control child = this;
+		for (var ancestor = Parent; ancestor != null; ancestor = ancestor.Parent)
+		{
+			var location = child.Location;
+			width = Math.Min(width, Math.Max(1, ancestor.ClientSize.Width - location.X));
+			height = Math.Min(height, Math.Max(1, ancestor.ClientSize.Height - location.Y));
+			child = ancestor;
+		}
+		return new Size(width, height);
+	}
+
+	/// <summary>
+	/// Returns the graph-space rectangle currently visible in the canvas.  This must
+	/// be derived from both viewport corners: the camera is allowed to show graph
+	/// coordinates below zero when the graph has been panned or framed.
+	/// </summary>
+	private RectangleF GetVisibleGraphBounds(Size canvasSize)
+	{
+		var topLeft = ViewToGraph(new PointF(0f, 0f));
+		var bottomRight = ViewToGraph(new PointF(canvasSize.Width, canvasSize.Height));
+		return new RectangleF(
+			Math.Min(topLeft.X, bottomRight.X),
+			Math.Min(topLeft.Y, bottomRight.Y),
+			Math.Abs(bottomRight.X - topLeft.X),
+			Math.Abs(bottomRight.Y - topLeft.Y));
+	}
 
 	/// <summary>
 	/// Pans the main canvas so that the graph position that corresponds to
@@ -1406,12 +1444,14 @@ public class NodeGraphView : Drawable
 		var mm = GetMinimapRect();
 
 		var graphBounds = GetGraphBounds();
-		float viewW  = Math.Max(1, Width);
-		float viewH  = Math.Max(1, Height);
-		float vpMinX = (_offset.X > 0 ? 0 : -_offset.X / _zoom);
-		float vpMinY = (_offset.Y > 0 ? 0 : -_offset.Y / _zoom);
-		float vpMaxX = vpMinX + viewW / _zoom;
-		float vpMaxY = vpMinY + viewH / _zoom;
+		var canvasSize = GetEffectiveCanvasSize();
+		float viewW  = canvasSize.Width;
+		float viewH  = canvasSize.Height;
+		var visibleBounds = GetVisibleGraphBounds(canvasSize);
+		float vpMinX = visibleBounds.Left;
+		float vpMinY = visibleBounds.Top;
+		float vpMaxX = visibleBounds.Right;
+		float vpMaxY = visibleBounds.Bottom;
 
 		float worldMinX = Math.Min(graphBounds.Left,  vpMinX);
 		float worldMinY = Math.Min(graphBounds.Top,   vpMinY);
@@ -1456,12 +1496,14 @@ public class NodeGraphView : Drawable
 		var graphBounds = GetGraphBounds();
 
 		// Expand slightly so the viewport rect can extend beyond nodes
-		float viewW  = Math.Max(1, Width);
-		float viewH  = Math.Max(1, Height);
-		float vpMinX = (_offset.X > 0 ? 0 : -_offset.X / _zoom);
-		float vpMinY = (_offset.Y > 0 ? 0 : -_offset.Y / _zoom);
-		float vpMaxX = vpMinX + viewW / _zoom;
-		float vpMaxY = vpMinY + viewH / _zoom;
+		var canvasSize = GetEffectiveCanvasSize();
+		float viewW  = canvasSize.Width;
+		float viewH  = canvasSize.Height;
+		var visibleBounds = GetVisibleGraphBounds(canvasSize);
+		float vpMinX = visibleBounds.Left;
+		float vpMinY = visibleBounds.Top;
+		float vpMaxX = visibleBounds.Right;
+		float vpMaxY = visibleBounds.Bottom;
 
 		float worldMinX = Math.Min(graphBounds.Left,  vpMinX);
 		float worldMinY = Math.Min(graphBounds.Top,   vpMinY);
