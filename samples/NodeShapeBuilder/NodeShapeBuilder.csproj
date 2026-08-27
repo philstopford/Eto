@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>12</LangVersion>
+    <ApplicationIcon />
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <Title>NodeShapeBuilder</Title>
+    <Description>Standalone demo: shape-definition and boolean-operation nodes using DesignLibs-compatible geometry and the Eto NodeGraphView control.</Description>
+  </PropertyGroup>
+
+  <!-- Global usings to match conventions of the main Eto projects -->
+  <ItemGroup>
+    <Using Include="System" />
+    <Using Include="System.Collections.Generic" />
+    <Using Include="System.Linq" />
+    <Using Include="System.IO" />
+    <Using Include="Eto.Forms" />
+    <Using Include="Eto.Drawing" />
+  </ItemGroup>
+
+  <!-- Eto core + platform.  Swap Eto.Gtk for Eto.WinForms or Eto.Wpf on Windows. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Eto.NodeGraph\Eto.NodeGraph.csproj" />
+  </ItemGroup>
+
+  <!-- Clipper2 for polygon boolean operations (same library that DesignLibs uses). -->
+  <ItemGroup>
+    <PackageReference Include="Clipper2" Version="1.4.0" />
+    <PackageReference Include="Eto.Platform.Gtk" Version="2.11.0" />
+  </ItemGroup>
+
+</Project>

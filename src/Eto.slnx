@@ -54,6 +54,7 @@
     <Build Solution="*|Windows" Project="false" />
     <Build Solution="*|Windows-x64" Project="false" />
   </Project>
+  <Project Path="Eto.NodeGraph/Eto.NodeGraph.csproj" />
   <Project Path="Eto.Serialization.Json/Eto.Serialization.Json.csproj" />
   <Project Path="Eto.Serialization.Xaml/Eto.Serialization.Xaml.csproj" />
   <Project Path="Eto.WinForms/Eto.WinForms.csproj">

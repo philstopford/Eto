@@ -209,7 +209,7 @@ namespace Eto.Mac
 			return new GridCellMouseEventArgs(column, row, col, item, buttons, modifiers, location);
 		}
 
-		public static MouseEventArgs GetMouseEvent(IMacViewHandler handler, NSEvent theEvent, bool includeWheel)
+		public static MouseEventArgs GetMouseEvent(IMacViewHandler handler, NSEvent theEvent, bool includeWheel, SizeF? wheelDeltaOverride = null)
 		{
 			SizeF? delta = null;
 			PointF point;
@@ -240,7 +240,7 @@ namespace Eto.Mac
 				}
 					
 				if (includeWheel)
-					delta = new SizeF((float)theEvent.DeltaX, (float)theEvent.DeltaY);
+					delta = wheelDeltaOverride ?? new SizeF((float)theEvent.DeltaX, (float)theEvent.DeltaY);
 				modifiers = theEvent.ModifierFlags.ToEto();
 				buttons = theEvent.GetMouseButtons();
 			}
