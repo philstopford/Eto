@@ -17,3 +17,6 @@ packages/
 .DS_Store
 *.proj.Backup.tmp
 ._.*
+/samples/NodeShapeBuilder/.idea
+/samples/NodeShapeBuilder/NodeShapeBuilder/.idea
+/src/.idea

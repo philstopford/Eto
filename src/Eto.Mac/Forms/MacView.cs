@@ -1,6 +1,7 @@
 using Eto.Mac.Forms.Controls;
 using Eto.Mac.Forms.Menu;
 using Eto.Mac.Forms.Printing;
+using Eto.Drawing;
 #if MACOS_NET
 using NSDraggingInfo = AppKit.INSDraggingInfo;
 #endif
@@ -63,6 +64,20 @@ namespace Eto.Mac.Forms
 			if (h == null) return;
 			if (h.Widget?.IsDisposed != false) return;
 			h.Callback.OnMouseWheel(h.Widget, MacConversions.GetMouseEvent(h, theEvent, true));
+		}
+
+		[Export("magnify:")]
+		public void Magnify(NSEvent theEvent)
+		{
+			var h = Handler;
+			if (h == null) return;
+			if (h.Widget?.IsDisposed != false) return;
+			// Route trackpad pinch through Eto's existing wheel pathway. The graph
+			// view applies exponential scaling, so small native magnification values
+			// remain smooth while still being visible to the user.
+			h.Callback.OnMouseWheel(h.Widget,
+				MacConversions.GetMouseEvent(h, theEvent, true,
+					new SizeF(0, (float)theEvent.Magnification * 10f)));
 		}
 		
 		public void FireMouseLeaveIfNeeded(bool async)
