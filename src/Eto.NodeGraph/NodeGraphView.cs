@@ -615,6 +615,12 @@ public class NodeGraphView : Drawable
 	private PointF _drawBoxAnchor;    // graph-space corner where the drag began
 	private PointF _drawBoxCurrent;   // graph-space current mouse position
 
+	// Marquee selection uses graph-space coordinates so zoom does not affect hits.
+	private bool _selectingNodes;
+	private PointF _selectionAnchor;
+	private PointF _selectionCurrent;
+	private List<NodeItem> _selectionBeforeMarquee;
+
 	// ── Wire-pin (waypoint) interaction ──────────────────────────────────────────
 	private bool           _draggingPin;
 	private NodeConnection _dragPinConn;
@@ -1097,6 +1103,13 @@ public class NodeGraphView : Drawable
 		// Rubber-band preview while the user draws a new group box
 		if (_drawingBox)
 			DrawRubberBandBox(g);
+		if (_selectingNodes)
+		{
+			var rect = GetSelectionRect();
+			g.FillRectangle(Color.FromArgb(100, 160, 255, 35), rect);
+			using (var pen = new Pen(Color.FromRgb(0x64A0FF), 1.5f / _zoom))
+				g.DrawRectangle(pen, rect);
+		}
 		g.RestoreTransform();
 
 		// The minimap is a device-space overlay, never affected by graph pan/zoom.
@@ -1332,6 +1345,26 @@ public class NodeGraphView : Drawable
 		float w = Math.Abs(_drawBoxCurrent.X - _drawBoxAnchor.X);
 		float h = Math.Abs(_drawBoxCurrent.Y - _drawBoxAnchor.Y);
 		return new RectangleF(x, y, w, h);
+	}
+
+	private RectangleF GetSelectionRect() => new RectangleF(
+		Math.Min(_selectionAnchor.X, _selectionCurrent.X), Math.Min(_selectionAnchor.Y, _selectionCurrent.Y),
+		Math.Abs(_selectionCurrent.X - _selectionAnchor.X), Math.Abs(_selectionCurrent.Y - _selectionAnchor.Y));
+
+	private void UpdateMarqueeSelection()
+	{
+		var next = new List<NodeItem>(_selectionBeforeMarquee);
+		var rect = GetSelectionRect();
+		if (_graph != null && rect.Width > 2 / _zoom && rect.Height > 2 / _zoom)
+			foreach (var node in _graph.Nodes)
+				if (RectIntersects(rect, node.Bounds) && !next.Contains(node)) next.Add(node);
+		if (!_selection.SequenceEqual(next))
+		{
+			_selection.Clear();
+			_selection.AddRange(next);
+			SelectionChanged?.Invoke(this, new NodeItemEventArgs(_selection.LastOrDefault()));
+		}
+		Invalidate();
 	}
 
 	/// <summary>Draws the rubber-band preview for a group box being drawn (in graph space).</summary>
@@ -1613,6 +1646,7 @@ public class NodeGraphView : Drawable
 		{
 			_isPanning = true;
 			_panStart  = e.Location;
+			CaptureMouse();
 			e.Handled  = true;
 			return;
 		}
@@ -1687,11 +1721,18 @@ public class NodeGraphView : Drawable
 			{
 				ClearBoxSelection();
 
-				// Selection
-				if (!e.Modifiers.HasFlag(Keys.Shift) && !_selection.Contains(node))
-					_selection.Clear();
-				if (!_selection.Contains(node))
-					_selection.Add(node);
+				// Ctrl/Shift click toggles without discarding the other nodes.
+				bool toggle = ctrlDown || e.Modifiers.HasFlag(Keys.Shift);
+				if (toggle && _selection.Contains(node))
+				{
+					_selection.Remove(node);
+					SelectionChanged?.Invoke(this, new NodeItemEventArgs(_selection.LastOrDefault()));
+					Invalidate();
+					e.Handled = true;
+					return;
+				}
+				if (!toggle && !_selection.Contains(node)) _selection.Clear();
+				if (!_selection.Contains(node)) _selection.Add(node);
 				SelectionChanged?.Invoke(this, new NodeItemEventArgs(node));
 
 				// Begin drag
@@ -1748,11 +1789,17 @@ public class NodeGraphView : Drawable
 				return;
 			}
 
-			// ── Deselect ─────────────────────────────────────────────────────────
+			// Empty-canvas drag selects nodes; Shift preserves the old selection.
 			ClearBoxSelection();
+			_selectionBeforeMarquee = e.Modifiers.HasFlag(Keys.Shift) ? _selection.ToList() : new List<NodeItem>();
 			_selection.Clear();
-			SelectionChanged?.Invoke(this, new NodeItemEventArgs(null));
+			_selection.AddRange(_selectionBeforeMarquee);
+			_selectionAnchor = _selectionCurrent = ViewToGraph(e.Location);
+			_selectingNodes = true;
+			CaptureMouse();
+			SelectionChanged?.Invoke(this, new NodeItemEventArgs(_selection.LastOrDefault()));
 			Invalidate();
+			e.Handled = true;
 		}
 
 		// ── Right-click: delete waypoint or hovered connection ────────────────────
@@ -1797,6 +1844,14 @@ public class NodeGraphView : Drawable
 			_offset   = _offset + delta;
 			_panStart = e.Location;
 			Invalidate();
+			return;
+		}
+
+		if (_selectingNodes)
+		{
+			_selectionCurrent = ViewToGraph(e.Location);
+			UpdateMarqueeSelection();
+			e.Handled = true;
 			return;
 		}
 
@@ -1876,7 +1931,24 @@ public class NodeGraphView : Drawable
 			return;
 		}
 
-		_isPanning = false;
+		if (_isPanning)
+		{
+			_isPanning = false;
+			ReleaseMouseCapture();
+			e.Handled = true;
+			return;
+		}
+		if (_selectingNodes)
+		{
+			_selectionCurrent = ViewToGraph(e.Location);
+			UpdateMarqueeSelection();
+			_selectingNodes = false;
+			_selectionBeforeMarquee = null;
+			ReleaseMouseCapture();
+			Invalidate();
+			e.Handled = true;
+			return;
+		}
 
 		// ── Wire-pin drag end ─────────────────────────────────────────────────────
 		if (_draggingPin)
@@ -2067,7 +2139,7 @@ public class NodeGraphView : Drawable
 				break;
 
 			case Keys.F:
-				FrameAll();
+				FrameSelection();
 				e.Handled = true;
 				break;
 		}
@@ -2090,7 +2162,21 @@ public class NodeGraphView : Drawable
 	{
 		if (_graph == null || _graph.Nodes.Count == 0) return;
 
-		var bounds = GetGraphBounds();
+		FrameBounds(GetGraphBounds());
+	}
+
+	/// <summary>Frames selected nodes, or the whole graph when nothing is selected.</summary>
+	public void FrameSelection()
+	{
+		if (_selection.Count == 0) { FrameAll(); return; }
+		LayoutAllNodes();
+		var bounds = _selection[0].Bounds;
+		foreach (var node in _selection.Skip(1)) bounds = RectUnion(bounds, node.Bounds);
+		FrameBounds(bounds);
+	}
+
+	private void FrameBounds(RectangleF bounds)
+	{
 		float margin = 40f;
 		float gw = bounds.Width  + margin * 2;
 		float gh = bounds.Height + margin * 2;
