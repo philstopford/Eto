@@ -175,6 +175,9 @@ public class NodeItem
 	public int HiddenSocketCount =>
 		Inputs.Count(s => !s.IsPinned) + Outputs.Count(s => !s.IsPinned);
 
+	/// <summary>Minimum width in graph units, allowing space for labelled input and output ports.</summary>
+	public float MinimumWidth { get; set; } = NodeGraphView.DefaultNodeWidth;
+
 	/// <summary>Width of the node in graph units (calculated by <see cref="NodeGraphView"/>).</summary>
 	internal float ComputedWidth { get; set; } = NodeGraphView.DefaultNodeWidth;
 
@@ -804,6 +807,7 @@ public class NodeGraphView : Drawable
 
 	private void LayoutNode(NodeItem node)
 	{
+		node.ComputedWidth = Math.Max(DefaultNodeWidth, node.MinimumWidth);
 		int pinnedIn  = node.Inputs.Count(s => s.IsPinned);
 		int pinnedOut = node.Outputs.Count(s => s.IsPinned);
 		int rows      = Math.Max(1, Math.Max(pinnedIn, pinnedOut));
