@@ -30,7 +30,7 @@
   <!-- Clipper2 for polygon boolean operations (same library that DesignLibs uses). -->
   <ItemGroup>
     <PackageReference Include="Clipper2" Version="2.0.0" />
-    <PackageReference Include="Eto.Platform.Gtk" Version="2.11.0" />
+    <PackageReference Include="Eto.Platform.Gtk" Version="2.13.0" />
   </ItemGroup>
 
 </Project>
